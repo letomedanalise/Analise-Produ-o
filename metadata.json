@@ -1,0 +1,6 @@
+{
+  "name": "Gestão Industrial - PCP & Produção",
+  "description": "Sistema integrado de gestão da produção industrial para Extrusão, Impressão e Corte & Solda com controle de produtividade, perdas, paradas e cadastros dinâmicos.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

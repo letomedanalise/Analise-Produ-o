@@ -1,0 +1,517 @@
+{
+  "configuracoes": {
+    "nomeEmpresa": "Letomed",
+    "cnpj": "",
+    "metaGeralPerda": 2.0,
+    "diasTrabalhadosMes": 26,
+    "ultimaAtualizacao": "2026-09-08T13:30:00.000Z"
+  },
+  "setores": [
+    {
+      "id": "set-ext",
+      "codigo": "EXT",
+      "nome": "Extrusora",
+      "descricao": "Transformação de resinas termoplásticas (PEBD, PEAD, PP) em bobinas e filmes tubulares.",
+      "unidadePadrao": "kg",
+      "ativo": true,
+      "ordem": 1,
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "set-imp",
+      "codigo": "IMP",
+      "nome": "Impressão",
+      "descricao": "Flexografia e aplicação de tintas, controle por cliente, metros lineares e perdas de acerto de clichê.",
+      "unidadePadrao": "metros",
+      "ativo": true,
+      "ordem": 2,
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "set-cs",
+      "codigo": "CS",
+      "nome": "Corte e Solda",
+      "descricao": "Setor de Corte e Solda para produção de coletores e embalagens hospitalares.",
+      "unidadePadrao": "unidade",
+      "ativo": true,
+      "ordem": 3,
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    }
+  ],
+  "maquinas": [
+    {
+      "id": "maq-cs-01",
+      "codigo": "CS-01",
+      "nome": "Corte e Solda 1",
+      "setorId": "set-cs",
+      "capacidadeNominalHora": 1000,
+      "status": "operando",
+      "modelo": "Corte e Solda 1",
+      "ativo": true,
+      "observacoes": "Máquina operacional",
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "maq-cs-02",
+      "codigo": "CS-02",
+      "nome": "Corte e Solda 2",
+      "setorId": "set-cs",
+      "capacidadeNominalHora": 1000,
+      "status": "operando",
+      "modelo": "Corte e Solda 2",
+      "ativo": true,
+      "observacoes": "Máquina operacional",
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "maq-cs-03",
+      "codigo": "CS-03",
+      "nome": "Corte e Solda 3 inf",
+      "setorId": "set-cs",
+      "capacidadeNominalHora": 800,
+      "status": "operando",
+      "modelo": "Corte e Solda 3 inf",
+      "ativo": true,
+      "observacoes": "Especializada em linha infantil",
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "maq-imp-01",
+      "codigo": "IMP-01",
+      "nome": "Impressora Flexográfica 1",
+      "setorId": "set-imp",
+      "capacidadeNominalHora": 1500,
+      "status": "operando",
+      "modelo": "Flexográfica 6 Cores",
+      "ativo": true,
+      "observacoes": "Impressora Flexo principal",
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "maq-imp-02",
+      "codigo": "IMP-02",
+      "nome": "Impressora Flexográfica 2",
+      "setorId": "set-imp",
+      "capacidadeNominalHora": 1200,
+      "status": "operando",
+      "modelo": "Flexográfica 4 Cores",
+      "ativo": true,
+      "observacoes": "Impressora Flexo secundária",
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "maq-ext-01",
+      "codigo": "EXT-01",
+      "nome": "Extrusora Balão 1",
+      "setorId": "set-ext",
+      "capacidadeNominalHora": 80,
+      "status": "operando",
+      "modelo": "Extrusora Balão PEBD",
+      "ativo": true,
+      "observacoes": "Extrusão principal PEBD",
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "maq-ext-02",
+      "codigo": "EXT-02",
+      "nome": "Extrusora Balão 2",
+      "setorId": "set-ext",
+      "capacidadeNominalHora": 90,
+      "status": "operando",
+      "modelo": "Extrusora Balão PEAD",
+      "ativo": true,
+      "observacoes": "Extrusão secundária PEAD",
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    }
+  ],
+  "operadores": [
+    {
+      "id": "op-01",
+      "matricula": "OP-01",
+      "nome": "Luis Otavio",
+      "setorId": "set-cs",
+      "turnoPadraoId": "tur-01",
+      "metaPerdaMaximaPercent": 2.0,
+      "cargo": "Operador de Corte e Solda",
+      "ativo": true,
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "op-02",
+      "matricula": "OP-02",
+      "nome": "Kauan Paladini",
+      "setorId": "set-cs",
+      "turnoPadraoId": "tur-01",
+      "metaPerdaMaximaPercent": 2.0,
+      "cargo": "Operador de Corte e Solda",
+      "ativo": true,
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "op-03",
+      "matricula": "OP-03",
+      "nome": "Caio Felipe",
+      "setorId": "set-cs",
+      "turnoPadraoId": "tur-02",
+      "metaPerdaMaximaPercent": 2.0,
+      "cargo": "Operador de Corte e Solda",
+      "ativo": true,
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "op-04",
+      "matricula": "OP-04",
+      "nome": "Igor",
+      "setorId": "set-cs",
+      "turnoPadraoId": "tur-02",
+      "metaPerdaMaximaPercent": 2.0,
+      "cargo": "Operador de Corte e Solda",
+      "ativo": true,
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "op-05",
+      "matricula": "OP-05",
+      "nome": "Kauan Gonsalves",
+      "setorId": "set-cs",
+      "turnoPadraoId": "tur-03",
+      "metaPerdaMaximaPercent": 2.0,
+      "cargo": "Operador de Corte e Solda",
+      "ativo": true,
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "op-06",
+      "matricula": "OP-06",
+      "nome": "Celina",
+      "setorId": "set-cs",
+      "turnoPadraoId": "tur-01",
+      "metaPerdaMaximaPercent": 2.0,
+      "cargo": "Operadora de Corte e Solda",
+      "ativo": true,
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "op-07",
+      "matricula": "OP-07",
+      "nome": "Ezequiel",
+      "setorId": "set-cs",
+      "turnoPadraoId": "tur-02",
+      "metaPerdaMaximaPercent": 2.0,
+      "cargo": "Operador de Corte e Solda",
+      "ativo": true,
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "op-imp-01",
+      "matricula": "OP-IMP-01",
+      "nome": "Marcos Impressão",
+      "setorId": "set-imp",
+      "turnoPadraoId": "tur-01",
+      "metaPerdaMaximaPercent": 2.0,
+      "cargo": "Operador de Impressão Flexográfica",
+      "ativo": true,
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "op-imp-02",
+      "matricula": "OP-IMP-02",
+      "nome": "Ricardo Flexo",
+      "setorId": "set-imp",
+      "turnoPadraoId": "tur-02",
+      "metaPerdaMaximaPercent": 2.0,
+      "cargo": "Operador de Impressão Flexográfica",
+      "ativo": true,
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "op-ext-01",
+      "matricula": "OP-EXT-01",
+      "nome": "Anderson Extrusão",
+      "setorId": "set-ext",
+      "turnoPadraoId": "tur-01",
+      "metaPerdaMaximaPercent": 2.0,
+      "cargo": "Operador de Extrusora",
+      "ativo": true,
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "op-ext-02",
+      "matricula": "OP-EXT-02",
+      "nome": "Valdir Extrusão",
+      "setorId": "set-ext",
+      "turnoPadraoId": "tur-02",
+      "metaPerdaMaximaPercent": 2.0,
+      "cargo": "Operador de Extrusora",
+      "ativo": true,
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    }
+  ],
+  "produtos": [
+    {
+      "id": "prod-01",
+      "codigo": "COL-AD",
+      "descricao": "Coletor AD",
+      "setorOrigemId": "set-cs",
+      "tipoMaterial": "PEBD",
+      "ativo": true,
+      "observacoes": "Coletor Adulto",
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "prod-02",
+      "codigo": "COL-INF",
+      "descricao": "Coletor INF",
+      "setorOrigemId": "set-cs",
+      "tipoMaterial": "PEBD",
+      "ativo": true,
+      "observacoes": "Coletor Infantil",
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "prod-03",
+      "codigo": "COLOSTOMIA",
+      "descricao": "Colostomia",
+      "setorOrigemId": "set-cs",
+      "tipoMaterial": "PEBD",
+      "ativo": true,
+      "observacoes": "Bolsa de Colostomia",
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "prod-04",
+      "codigo": "EMB-AD",
+      "descricao": "Embalagem AD",
+      "setorOrigemId": "set-cs",
+      "tipoMaterial": "PEBD",
+      "ativo": true,
+      "observacoes": "Embalagem Adulto",
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "prod-05",
+      "codigo": "EMB-INF",
+      "descricao": "Embalagem INF",
+      "setorOrigemId": "set-cs",
+      "tipoMaterial": "PEBD",
+      "ativo": true,
+      "observacoes": "Embalagem Infantil",
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "prod-06",
+      "codigo": "EMB-COLT",
+      "descricao": "Embalagem COLT",
+      "setorOrigemId": "set-cs",
+      "tipoMaterial": "PEBD",
+      "ativo": true,
+      "observacoes": "Embalagem Coletor",
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "prod-07",
+      "codigo": "EMB-FRASCO",
+      "descricao": "Embalagem Frasco",
+      "setorOrigemId": "set-cs",
+      "tipoMaterial": "PEBD",
+      "ativo": true,
+      "observacoes": "Embalagem de Frasco",
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "prod-imp-01",
+      "codigo": "BOB-IMP-01",
+      "descricao": "Bobina Impressa Letomed",
+      "setorOrigemId": "set-imp",
+      "tipoMaterial": "PEBD",
+      "ativo": true,
+      "observacoes": "Bobina impressa hospitalar",
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "prod-imp-02",
+      "codigo": "BOB-IMP-02",
+      "descricao": "Filme Flexográfico Impresso",
+      "setorOrigemId": "set-imp",
+      "tipoMaterial": "PEBD",
+      "ativo": true,
+      "observacoes": "Filme flexográfico sob medida",
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "prod-ext-01",
+      "codigo": "BOB-EXT-01",
+      "descricao": "Bobina Tubular Virgem PEBD",
+      "setorOrigemId": "set-ext",
+      "tipoMaterial": "PEBD",
+      "ativo": true,
+      "observacoes": "Bobina tubular virgem extrusada",
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "prod-ext-02",
+      "codigo": "BOB-EXT-02",
+      "descricao": "Bobina Tubular Virgem PEAD",
+      "setorOrigemId": "set-ext",
+      "tipoMaterial": "PEAD",
+      "ativo": true,
+      "observacoes": "Bobina tubular PEAD alta densidade",
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    }
+  ],
+  "turnos": [
+    {
+      "id": "tur-01",
+      "codigo": "1T",
+      "nome": "1º Turno",
+      "horaInicio": "06:00",
+      "horaFim": "14:20",
+      "cargaHorariaMinutos": 500,
+      "ativo": true,
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "tur-02",
+      "codigo": "2T",
+      "nome": "2º Turno",
+      "horaInicio": "14:20",
+      "horaFim": "22:40",
+      "cargaHorariaMinutos": 500,
+      "ativo": true,
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "tur-03",
+      "codigo": "3T",
+      "nome": "3º Turno",
+      "horaInicio": "22:40",
+      "horaFim": "06:00",
+      "cargaHorariaMinutos": 440,
+      "ativo": true,
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    }
+  ],
+  "motivosParada": [
+    {
+      "id": "mot-01",
+      "codigo": "SETUP",
+      "descricao": "Setup",
+      "tipo": "operacional",
+      "ativo": true,
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "mot-02",
+      "codigo": "AJUSTE",
+      "descricao": "Ajuste de máquina",
+      "tipo": "operacional",
+      "ativo": true,
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "mot-03",
+      "codigo": "SOLDA-ABERTA",
+      "descricao": "Solda aberta",
+      "tipo": "operacional",
+      "ativo": true,
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "mot-04",
+      "codigo": "CORTE-ERRADO",
+      "descricao": "Corte errado",
+      "tipo": "operacional",
+      "ativo": true,
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "mot-05",
+      "codigo": "FALTA-MAT",
+      "descricao": "Falta de material",
+      "tipo": "nao_programada",
+      "ativo": true,
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "mot-06",
+      "codigo": "MANUT",
+      "descricao": "Manutenção",
+      "tipo": "programada",
+      "ativo": true,
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "mot-07",
+      "codigo": "QUALIDADE",
+      "descricao": "Problema de qualidade",
+      "tipo": "operacional",
+      "ativo": true,
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "mot-08",
+      "codigo": "TROCA-BOB",
+      "descricao": "Troca de bobinas",
+      "tipo": "operacional",
+      "ativo": true,
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    }
+  ],
+  "regrasPremiacao": [
+    {
+      "id": "prem-01",
+      "setorId": "set-cs",
+      "metaPerdaPercentual": 2.0,
+      "toleranciaMaximaPercentual": 2.5,
+      "valorBasePremio": 350,
+      "tipoPremio": "individual",
+      "ativo": true,
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    }
+  ],
+  "lancamentosProducao": [],
+  "lancamentosParada": []
+}
