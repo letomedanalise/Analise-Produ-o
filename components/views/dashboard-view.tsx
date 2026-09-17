@@ -428,7 +428,7 @@ export function DashboardView({ onNavigate }: { onNavigate: (tab: TabKey) => voi
                 <option value="todos">Todos os Setores</option>
                 {data.setores.map((s) => (
                   <option key={s.id} value={s.id}>
-                    {s.nome} ({s.codigo})
+                    {s.nome}
                   </option>
                 ))}
               </select>
@@ -447,7 +447,7 @@ export function DashboardView({ onNavigate }: { onNavigate: (tab: TabKey) => voi
                 <option value="todas">Todas as Máquinas</option>
                 {availableMaquinas.map((m) => (
                   <option key={m.id} value={m.id}>
-                    {m.codigo} - {m.nome}
+                    {m.nome}
                   </option>
                 ))}
               </select>
@@ -466,7 +466,7 @@ export function DashboardView({ onNavigate }: { onNavigate: (tab: TabKey) => voi
                 <option value="todos">Todos os Operadores</option>
                 {data.operadores.map((o) => (
                   <option key={o.id} value={o.id}>
-                    {o.nome} ({o.matricula})
+                    {o.nome}
                   </option>
                 ))}
               </select>
@@ -485,26 +485,7 @@ export function DashboardView({ onNavigate }: { onNavigate: (tab: TabKey) => voi
                 <option value="todos">Todos os Produtos</option>
                 {data.produtos.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.codigo} - {p.descricao}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Turno */}
-            <div>
-              <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
-                Turno
-              </label>
-              <select
-                value={filters.turnoId}
-                onChange={(e) => setFilters((prev) => ({ ...prev, turnoId: e.target.value }))}
-                className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 bg-white text-slate-800 font-medium focus:ring-1 focus:ring-indigo-500"
-              >
-                <option value="todos">Todos os Turnos</option>
-                {data.turnos.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.nome} ({t.horaInicio} às {t.horaFim})
+                    {p.descricao}
                   </option>
                 ))}
               </select>
@@ -1004,13 +985,12 @@ export function DashboardView({ onNavigate }: { onNavigate: (tab: TabKey) => voi
                   <div key={item.maquina.id} className="p-2.5 rounded-xl bg-slate-50 border border-slate-100 space-y-1">
                     <div className="flex items-center justify-between text-xs">
                       <div className="flex items-center gap-2">
-                        <span className="font-mono font-bold text-slate-900">{item.maquina.codigo}</span>
-                        <span className="font-medium text-slate-700 truncate max-w-[180px]">
+                        <span className="font-bold text-slate-900 truncate max-w-[200px]">
                           {item.maquina.nome}
                         </span>
                         {item.setor && (
                           <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-200 text-slate-600 font-semibold">
-                            {item.setor.codigo}
+                            {item.setor.nome}
                           </span>
                         )}
                       </div>
@@ -1074,8 +1054,7 @@ export function DashboardView({ onNavigate }: { onNavigate: (tab: TabKey) => voi
                     >
                       <div className="flex items-center justify-between text-xs">
                         <div className="flex items-center gap-2">
-                          <span className="font-mono font-bold text-slate-900">{item.maquina.codigo}</span>
-                          <span className="font-medium text-slate-700 truncate max-w-[180px]">
+                          <span className="font-bold text-slate-900 truncate max-w-[200px]">
                             {item.maquina.nome}
                           </span>
                         </div>
@@ -1420,7 +1399,7 @@ export function DashboardView({ onNavigate }: { onNavigate: (tab: TabKey) => voi
                           {formatYMDToBR(l.data)}
                         </td>
                         <td className="py-2.5">
-                          <span className="font-bold text-slate-900 block">{maquina?.codigo || l.maquinaId}</span>
+                          <span className="font-bold text-slate-900 block">{maquina?.nome || l.maquinaId}</span>
                           <span className="text-[11px] text-slate-500">{setor?.nome}</span>
                         </td>
                         <td className="py-2.5 font-medium text-slate-800">

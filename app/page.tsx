@@ -128,10 +128,12 @@ function MainContent() {
           sidebarCollapsed ? 'lg:pl-18' : 'lg:pl-64'
         }`}
       >
-        <Header
-          currentTabTitle={currentTabInfo.title}
-          currentTabSubtitle={currentTabInfo.subtitle}
-        />
+        {activeTab !== 'lancamentos' && (
+          <Header
+            currentTabTitle={currentTabInfo.title}
+            currentTabSubtitle={currentTabInfo.subtitle}
+          />
+        )}
 
         <main className="flex-1 p-4 sm:p-6 max-w-7xl w-full mx-auto">
           {renderView()}

@@ -200,7 +200,7 @@ export function RelatorioParadas({ lancamentos, periodoRotulo }: RelatorioParada
           </div>
           <div className="mt-2">
             <span className="text-xl font-black text-rose-700 block truncate">
-              {statsParadas.topMaquina ? statsParadas.topMaquina.maquina.codigo : '—'}
+              {statsParadas.topMaquina ? statsParadas.topMaquina.maquina.nome : '—'}
             </span>
           </div>
           <p className="text-[11px] text-slate-400 mt-1">
@@ -342,14 +342,14 @@ export function RelatorioParadas({ lancamentos, periodoRotulo }: RelatorioParada
                     key={item.maquina.id}
                     onClick={() =>
                       abrirAuditoria(
-                        `Paradas na Máquina: ${item.maquina.codigo}`,
+                        `Paradas na Máquina: ${item.maquina.nome}`,
                         `Todos os apontamentos de interrupção nesta máquina`,
                         item.lancamentos
                       )
                     }
                     className="hover:bg-indigo-50/50 cursor-pointer transition-colors"
                   >
-                    <td className="py-2.5 px-3 font-bold text-slate-900">{item.maquina.codigo}</td>
+                    <td className="py-2.5 px-3 font-bold text-slate-900">{item.maquina.nome}</td>
                     <td className="py-2.5 px-3 text-slate-500">{item.setor?.nome || '—'}</td>
                     <td className="py-2.5 px-3 text-center font-semibold text-slate-700">{item.numeroParadas}</td>
                     <td className="py-2.5 px-3 text-right font-black text-amber-700 whitespace-nowrap">

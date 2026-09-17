@@ -82,7 +82,6 @@ export function CadastrosView() {
     { key: 'setores' as const, label: 'Setores', icon: Layers, count: data.setores.length },
     { key: 'maquinas' as const, label: 'Máquinas', icon: Cpu, count: data.maquinas.length },
     { key: 'produtos' as const, label: 'Produtos', icon: Package, count: data.produtos.length },
-    { key: 'turnos' as const, label: 'Turnos', icon: Clock, count: data.turnos.length },
     { key: 'motivos' as const, label: 'Motivos de Parada', icon: AlertCircle, count: data.motivosParada.length },
   ];
 
@@ -276,28 +275,6 @@ export function CadastrosView() {
           />
         )}
 
-        {currentSubTab === 'turnos' && (
-          <TabelaTurnos
-            turnos={data.turnos
-              .filter((t) => filterByStatus(t.ativo))
-              .filter(
-                (t) =>
-                  t.nome.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                  t.codigo.toLowerCase().includes(searchTerm.toLowerCase())
-              )}
-            onEdit={(t) => {
-              setEditingItem(t);
-              setModalType('turnos');
-            }}
-            onToggleStatus={toggleTurnoAtivo}
-            onDelete={(id) => {
-              if (window.confirm('Tem certeza que deseja excluir este turno?')) {
-                deleteTurno(id);
-              }
-            }}
-          />
-        )}
-
         {currentSubTab === 'motivos' && (
           <TabelaMotivosParada
             motivos={data.motivosParada
@@ -391,10 +368,8 @@ function TabelaOperadores({
       <table className="w-full text-left text-xs sm:text-sm border-collapse">
         <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase text-[11px] tracking-wider">
           <tr>
-            <th className="py-3 px-4">Matrícula</th>
             <th className="py-3 px-4">Nome do Operador</th>
             <th className="py-3 px-4">Setor Principal</th>
-            <th className="py-3 px-4">Turno Padrão</th>
             <th className="py-3 px-4 text-center">Meta Perda Máx.</th>
             <th className="py-3 px-4 text-center">Status</th>
             <th className="py-3 px-4 text-right">Ações</th>
@@ -403,7 +378,6 @@ function TabelaOperadores({
         <tbody className="divide-y divide-slate-100">
           {operadores.map((op) => (
             <tr key={op.id} className="hover:bg-slate-50/70 transition-colors">
-              <td className="py-3 px-4 font-mono font-medium text-slate-500">{op.matricula}</td>
               <td className="py-3 px-4 font-semibold text-slate-900">
                 {op.nome}
                 {op.cargo && <span className="block text-[11px] font-normal text-slate-500">{op.cargo}</span>}
@@ -413,7 +387,6 @@ function TabelaOperadores({
                   {getSetorName(op.setorId)}
                 </span>
               </td>
-              <td className="py-3 px-4 text-slate-600">{getTurnoName(op.turnoPadraoId)}</td>
               <td className="py-3 px-4 text-center">
                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700">
                   ≤ {op.metaPerdaMaximaPercent}%
@@ -486,7 +459,6 @@ function TabelaSetores({
       <table className="w-full text-left text-xs sm:text-sm border-collapse">
         <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase text-[11px] tracking-wider">
           <tr>
-            <th className="py-3 px-4">Código</th>
             <th className="py-3 px-4">Nome do Setor</th>
             <th className="py-3 px-4">Unidade Padrão</th>
             <th className="py-3 px-4 text-center">Máquinas</th>
@@ -498,7 +470,6 @@ function TabelaSetores({
         <tbody className="divide-y divide-slate-100">
           {setores.map((s) => (
             <tr key={s.id} className="hover:bg-slate-50/70 transition-colors">
-              <td className="py-3 px-4 font-mono font-bold text-indigo-700">{s.codigo}</td>
               <td className="py-3 px-4">
                 <span className="font-semibold text-slate-900">{s.nome}</span>
                 {s.descricao && <span className="block text-xs text-slate-500 line-clamp-1">{s.descricao}</span>}
@@ -577,7 +548,6 @@ function TabelaMaquinas({
       <table className="w-full text-left text-xs sm:text-sm border-collapse">
         <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase text-[11px] tracking-wider">
           <tr>
-            <th className="py-3 px-4">Código</th>
             <th className="py-3 px-4">Nome / Modelo</th>
             <th className="py-3 px-4">Setor</th>
             <th className="py-3 px-4 text-center">Capac. Nominal</th>
@@ -589,7 +559,6 @@ function TabelaMaquinas({
         <tbody className="divide-y divide-slate-100">
           {maquinas.map((m) => (
             <tr key={m.id} className="hover:bg-slate-50/70 transition-colors">
-              <td className="py-3 px-4 font-mono font-bold text-slate-800">{m.codigo}</td>
               <td className="py-3 px-4">
                 <span className="font-semibold text-slate-900">{m.nome}</span>
                 {m.modelo && <span className="block text-xs text-slate-500">Modelo: {m.modelo}</span>}
@@ -679,7 +648,6 @@ function TabelaProdutos({
       <table className="w-full text-left text-xs sm:text-sm border-collapse">
         <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase text-[11px] tracking-wider">
           <tr>
-            <th className="py-3 px-4">Código</th>
             <th className="py-3 px-4">Descrição do Produto</th>
             <th className="py-3 px-4">Material</th>
             <th className="py-3 px-4">Setor Origem</th>
@@ -691,7 +659,6 @@ function TabelaProdutos({
         <tbody className="divide-y divide-slate-100">
           {produtos.map((p) => (
             <tr key={p.id} className="hover:bg-slate-50/70 transition-colors">
-              <td className="py-3 px-4 font-mono font-bold text-slate-800">{p.codigo}</td>
               <td className="py-3 px-4 font-semibold text-slate-900">{p.descricao}</td>
               <td className="py-3 px-4">
                 <span className="font-mono px-2 py-0.5 rounded text-xs bg-slate-100 text-slate-700 font-medium">
@@ -848,7 +815,6 @@ function TabelaMotivosParada({
       <table className="w-full text-left text-xs sm:text-sm border-collapse">
         <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase text-[11px] tracking-wider">
           <tr>
-            <th className="py-3 px-4">Código</th>
             <th className="py-3 px-4">Descrição do Motivo de Parada</th>
             <th className="py-3 px-4">Tipo de Parada</th>
             <th className="py-3 px-4">Setor Aplicável</th>
@@ -859,7 +825,6 @@ function TabelaMotivosParada({
         <tbody className="divide-y divide-slate-100">
           {motivos.map((m) => (
             <tr key={m.id} className="hover:bg-slate-50/70 transition-colors">
-              <td className="py-3 px-4 font-mono font-bold text-slate-800">{m.codigo}</td>
               <td className="py-3 px-4 font-semibold text-slate-900">{m.descricao}</td>
               <td className="py-3 px-4">
                 <span
@@ -1082,36 +1047,19 @@ function ModalCadastro({
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Setor Principal *</label>
-                  <select
-                    value={formData.setorId || ''}
-                    onChange={(e) => setFormData({ ...formData, setorId: e.target.value })}
-                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500/20 bg-white"
-                  >
-                    {setores.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.nome}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Turno Padrão</label>
-                  <select
-                    value={formData.turnoPadraoId || ''}
-                    onChange={(e) => setFormData({ ...formData, turnoPadraoId: e.target.value })}
-                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500/20 bg-white"
-                  >
-                    <option value="">Turno Flexível</option>
-                    {turnos.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.nome}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Setor Principal *</label>
+                <select
+                  value={formData.setorId || ''}
+                  onChange={(e) => setFormData({ ...formData, setorId: e.target.value })}
+                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500/20 bg-white"
+                >
+                  {setores.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.nome}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div>

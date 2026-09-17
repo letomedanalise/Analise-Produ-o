@@ -430,7 +430,7 @@ export function RelatoriosView() {
               <option value="">Todas as Máquinas</option>
               {maquinasFiltradasPorSetor.map((m) => (
                 <option key={m.id} value={m.id}>
-                  {m.codigo} - {m.nome}
+                  {m.nome}
                 </option>
               ))}
             </select>
@@ -465,23 +465,6 @@ export function RelatoriosView() {
               {data.produtos.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.descricao}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Turno */}
-          <div>
-            <label className="block text-[11px] font-semibold text-slate-600 mb-1">Turno:</label>
-            <select
-              value={turnoId}
-              onChange={(e) => setTurnoId(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 font-medium text-slate-800 focus:bg-white focus:ring-2 focus:ring-indigo-500"
-            >
-              <option value="">Todos os Turnos</option>
-              {data.turnos.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.nome}
                 </option>
               ))}
             </select>

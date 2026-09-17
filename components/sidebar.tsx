@@ -51,7 +51,7 @@ const NAV_ITEMS: NavItem[] = [
   { key: 'operadores', label: 'Operadores', icon: Users, group: 'gestao' },
   { key: 'premiacao', label: 'Premiação', icon: Award, group: 'gestao' },
   { key: 'relatorios', label: 'Relatórios', icon: FileBarChart, group: 'gestao' },
-  { key: 'cadastros', label: 'Cadastros', icon: FolderKanban, badge: '6 Tabelas', group: 'sistema' },
+  { key: 'cadastros', label: 'Cadastros', icon: FolderKanban, badge: '5 Tabelas', group: 'sistema' },
   { key: 'configuracoes', label: 'Configurações', icon: Settings, group: 'sistema' },
 ];
 

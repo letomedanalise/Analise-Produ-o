@@ -1,1 +1,30 @@
 @import "tailwindcss";
+
+/* Cursor pointer (mãozinha) para todos os elementos clicáveis da aplicação */
+button,
+[role="button"],
+a,
+select,
+summary,
+input[type="button"],
+input[type="submit"],
+input[type="reset"],
+input[type="checkbox"],
+input[type="radio"],
+input[type="file"],
+label[for],
+[tabindex]:not([tabindex="-1"]),
+.cursor-pointer,
+[onClick],
+[onclick] {
+  cursor: pointer !important;
+}
+
+/* Garante que elementos desabilitados mostrem cursor not-allowed */
+button:disabled,
+input:disabled,
+select:disabled,
+textarea:disabled,
+[aria-disabled="true"] {
+  cursor: not-allowed !important;
+}

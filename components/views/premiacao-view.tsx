@@ -85,9 +85,6 @@ export function PremiacaoView() {
               <div key={setor.id} className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-slate-900 text-sm">{setor.nome}</span>
-                  <span className="text-[11px] font-mono bg-white px-2 py-0.5 rounded border border-slate-200 text-indigo-700">
-                    {setor.codigo}
-                  </span>
                 </div>
 
                 <div className="space-y-2 text-xs">

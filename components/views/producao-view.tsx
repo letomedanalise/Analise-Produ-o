@@ -27,7 +27,7 @@ export function ProducaoView({ onNavigate }: { onNavigate: (tab: TabKey) => void
   const taxaPerda = totalBruto > 0 ? ((totalRefugo / totalBruto) * 100).toFixed(2) : '0.00';
 
   const getSetorName = (id: string) => data.setores.find((s) => s.id === id)?.nome || id;
-  const getMaquinaName = (id: string) => data.maquinas.find((m) => m.id === id)?.codigo || id;
+  const getMaquinaName = (id: string) => data.maquinas.find((m) => m.id === id)?.nome || id;
   const getOperadorName = (id: string) => data.operadores.find((op) => op.id === id)?.nome || id;
   const getProdutoName = (id: string) => data.produtos.find((p) => p.id === id)?.descricao || id;
 

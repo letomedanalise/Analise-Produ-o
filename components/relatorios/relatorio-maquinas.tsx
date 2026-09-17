@@ -254,8 +254,7 @@ export function RelatorioMaquinas({ lancamentos, periodoRotulo }: RelatorioMaqui
                       </td>
                     )}
                     <td className="py-3 px-3 whitespace-nowrap">
-                      <span className="font-bold text-slate-900 block">{item.maquina.codigo}</span>
-                      <span className="text-[10px] text-slate-400">{item.maquina.nome}</span>
+                      <span className="font-bold text-slate-900">{item.maquina.nome}</span>
                     </td>
                     <td className="py-3 px-3 text-slate-500 whitespace-nowrap">{item.setor?.nome || '—'}</td>
                     <td className="py-3 px-3 text-right font-black text-emerald-700">

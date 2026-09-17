@@ -113,7 +113,6 @@ export function RelatorioProdutos({ lancamentos, periodoRotulo }: RelatorioProdu
             <thead>
               <tr className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200 uppercase tracking-wider text-[10px]">
                 <th className="py-2.5 px-3">Produto</th>
-                <th className="py-2.5 px-3">Código</th>
                 <th className="py-2.5 px-3 text-right">Produção Boa (kg)</th>
                 <th className="py-2.5 px-3 text-right">Unidades (un)</th>
                 <th className="py-2.5 px-3 text-right">Refugo (kg)</th>
@@ -145,7 +144,6 @@ export function RelatorioProdutos({ lancamentos, periodoRotulo }: RelatorioProdu
                     }`}
                   >
                     <td className="py-3 px-3 font-bold text-slate-900">{item.produto.descricao}</td>
-                    <td className="py-3 px-3 font-mono text-slate-500">{item.produto.codigo}</td>
                     <td className="py-3 px-3 text-right font-black text-emerald-700">
                       {formatPtBrKg(item.metrics.totalLiquidoKg)}
                     </td>

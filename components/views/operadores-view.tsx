@@ -48,8 +48,7 @@ export function OperadoresView({ onNavigate }: { onNavigate: (tab: TabKey) => vo
             <div key={op.id} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3">
               <div className="flex items-start justify-between">
                 <div>
-                  <span className="font-mono font-bold text-xs text-slate-500">{op.matricula}</span>
-                  <h3 className="font-bold text-slate-900 text-sm mt-0.5">{op.nome}</h3>
+                  <h3 className="font-bold text-slate-900 text-base">{op.nome}</h3>
                   <span className="text-xs text-slate-500 block">{op.cargo || 'Operador de Produção'}</span>
                 </div>
 
@@ -68,10 +67,6 @@ export function OperadoresView({ onNavigate }: { onNavigate: (tab: TabKey) => vo
                 <div className="flex justify-between">
                   <span>Setor:</span>
                   <strong className="text-slate-800">{getSetorName(op.setorId)}</strong>
-                </div>
-                <div className="flex justify-between">
-                  <span>Turno:</span>
-                  <strong className="text-slate-800">{getTurnoName(op.turnoPadraoId)}</strong>
                 </div>
                 <div className="flex justify-between">
                   <span>Meta de Perda:</span>

@@ -44,10 +44,7 @@ export function MaquinasView({ onNavigate }: { onNavigate: (tab: TabKey) => void
             <div key={m.id} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3">
               <div className="flex items-start justify-between">
                 <div>
-                  <span className="font-mono font-bold text-xs px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-100">
-                    {m.codigo}
-                  </span>
-                  <h3 className="font-bold text-slate-900 text-sm mt-1.5">{m.nome}</h3>
+                  <h3 className="font-bold text-slate-900 text-base">{m.nome}</h3>
                   <span className="text-xs text-slate-500">{getSetorName(m.setorId)}</span>
                 </div>
 
