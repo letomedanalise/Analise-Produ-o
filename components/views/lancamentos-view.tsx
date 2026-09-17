@@ -3,6 +3,7 @@
 import React, { useState, useMemo } from 'react';
 import { useProductionDB } from '@/lib/db-context';
 import { LancamentoProducao } from '@/lib/types';
+import { SUPABASE_SQL_SETUP } from '@/lib/supabase';
 import { RtlDecimalInput } from '@/components/ui/rtl-decimal-input';
 import {
   ClipboardPenLine,
@@ -32,6 +33,10 @@ import {
   Percent,
   TrendingUp,
   Factory,
+  Cloud,
+  CloudOff,
+  Database,
+  RefreshCw,
 } from 'lucide-react';
 
 type ViewMode = 'list' | 'select_sector' | 'form';
@@ -84,9 +89,18 @@ export function LancamentosView() {
     addLancamentoProducao,
     updateLancamentoProducao,
     deleteLancamentoProducao,
+    addLancamentoProducaoComParada,
+    updateLancamentoProducaoComParada,
     addLancamentoParada,
     deleteLancamentoParada,
+    supabaseInfo,
+    checkSupabaseConnection,
+    forceSyncToSupabase,
+    isSaving,
   } = useProductionDB();
+
+  const [copiedSql, setCopiedSql] = useState(false);
+  const [showSqlModal, setShowSqlModal] = useState(false);
 
   // Abas principais: Produção vs Apontamento de Paradas
   const [activeTab, setActiveTab] = useState<'producao' | 'paradas'>('producao');
@@ -455,26 +469,24 @@ export function LancamentosView() {
     let savedId = '';
     let opName = payload.ordemProducao;
 
+    const paradaPayload = (payload.tempoParadoMinutos > 0 && payload.motivoParadaId)
+      ? {
+          data: payload.data,
+          turnoId: payload.turnoId,
+          maquinaId: payload.maquinaId,
+          operadorId: payload.operadorId,
+          motivoParadaId: payload.motivoParadaId,
+          tempoMinutos: payload.tempoParadoMinutos,
+          observacoes: payload.observacoes ? `Referente à OP ${opName}: ${payload.observacoes}` : `Parada na OP ${opName}`,
+        }
+      : null;
+
     if (formMode === 'edit' && editingId) {
-      updateLancamentoProducao(editingId, payload);
+      updateLancamentoProducaoComParada(editingId, payload, paradaPayload);
       savedId = editingId;
     } else {
-      const created = addLancamentoProducao(payload);
+      const created = addLancamentoProducaoComParada(payload, paradaPayload);
       savedId = created.id;
-    }
-
-    // Se houve parada apontada no formulário de produção, sincroniza também em lancamentosParada
-    if (payload.tempoParadoMinutos > 0 && payload.motivoParadaId) {
-      addLancamentoParada({
-        lancamentoProducaoId: savedId,
-        data: payload.data,
-        turnoId: payload.turnoId,
-        maquinaId: payload.maquinaId,
-        operadorId: payload.operadorId,
-        motivoParadaId: payload.motivoParadaId,
-        tempoMinutos: payload.tempoParadoMinutos,
-        observacoes: payload.observacoes ? `Referente à OP ${opName}: ${payload.observacoes}` : `Parada na OP ${opName}`,
-      });
     }
 
     // Atualiza memória de sessão (Requisito 15)
@@ -727,6 +739,149 @@ export function LancamentosView() {
 
   return (
     <div className="space-y-6">
+      {/* BARRA DE STATUS DA SINCRONIZAÇÃO EM NUVEM (SUPABASE) */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 px-4 py-3 rounded-2xl bg-white border border-slate-200/80 shadow-xs">
+        <div className="flex items-center gap-3">
+          <div
+            className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+              supabaseInfo.tableExists
+                ? 'bg-emerald-50 text-emerald-600 border border-emerald-200/60'
+                : 'bg-amber-50 text-amber-600 border border-amber-200/60'
+            }`}
+          >
+            {supabaseInfo.tableExists ? (
+              <Cloud className="w-5 h-5" />
+            ) : (
+              <CloudOff className="w-5 h-5" />
+            )}
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                Armazenamento
+              </span>
+              <span
+                className={`inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full ${
+                  supabaseInfo.tableExists
+                    ? 'bg-emerald-100 text-emerald-800'
+                    : 'bg-amber-100 text-amber-800'
+                }`}
+              >
+                <span
+                  className={`w-1.5 h-1.5 rounded-full ${
+                    supabaseInfo.tableExists ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'
+                  }`}
+                />
+                {supabaseInfo.tableExists ? 'Nuvem Supabase Ativa' : 'Salvo no Navegador (Nuvem Pendente)'}
+              </span>
+            </div>
+            <p className="text-xs text-slate-600 mt-0.5">
+              {supabaseInfo.tableExists
+                ? `Lançamentos sincronizados com o banco de dados. ${
+                    supabaseInfo.lastSyncedAt ? `Última sincronização: ${supabaseInfo.lastSyncedAt}` : ''
+                  }`
+                : 'Seus lançamentos estão salvos com segurança neste dispositivo. Para sincronizar com a nuvem Vercel e outros computadores, ative a tabela no Supabase.'}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
+          {!supabaseInfo.tableExists && (
+            <button
+              type="button"
+              onClick={() => setShowSqlModal(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-amber-900 bg-amber-100 hover:bg-amber-200 transition-colors"
+            >
+              <Database className="w-3.5 h-3.5" />
+              <span>Ativar Nuvem (SQL)</span>
+            </button>
+          )}
+
+          <button
+            type="button"
+            disabled={isSaving || supabaseInfo.isChecking}
+            onClick={async () => {
+              await checkSupabaseConnection();
+              await forceSyncToSupabase();
+            }}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors disabled:opacity-50"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isSaving || supabaseInfo.isChecking ? 'animate-spin' : ''}`} />
+            <span>{isSaving ? 'Sincronizando...' : 'Testar / Sincronizar'}</span>
+          </button>
+        </div>
+      </div>
+
+      {/* MODAL DE ATIVAÇÃO DO SUPABASE */}
+      {showSqlModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white rounded-3xl p-6 max-w-xl w-full shadow-2xl border border-slate-200 space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Database className="w-5 h-5 text-indigo-600" />
+                <h3 className="font-bold text-slate-900 text-lg">Ativar Sincronização Supabase</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowSqlModal(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-sm text-slate-600">
+              Para habilitar o salvamento em nuvem na Vercel e garantir que nenhum lançamento seja perdido:
+            </p>
+
+            <ol className="text-xs text-slate-700 space-y-1.5 list-decimal pl-4 font-medium">
+              <li>Abra o painel do seu projeto no Supabase (<strong>supabase.com</strong>).</li>
+              <li>Acesse a aba <strong>SQL Editor</strong> no menu lateral esquerdo.</li>
+              <li>Clique em <strong>New query</strong>, cole o código abaixo e clique em <strong>Run</strong>:</li>
+            </ol>
+
+            <div className="relative">
+              <pre className="p-3 bg-slate-900 text-emerald-400 rounded-xl text-xs font-mono overflow-x-auto max-h-48">
+                {SUPABASE_SQL_SETUP}
+              </pre>
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(SUPABASE_SQL_SETUP);
+                  setCopiedSql(true);
+                  setTimeout(() => setCopiedSql(false), 2000);
+                }}
+                className="absolute top-2 right-2 px-2.5 py-1 bg-white/10 hover:bg-white/20 text-white rounded-lg text-xs font-bold flex items-center gap-1 backdrop-blur-xs"
+              >
+                <Copy className="w-3.5 h-3.5" />
+                <span>{copiedSql ? 'Copiado!' : 'Copiar SQL'}</span>
+              </button>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowSqlModal(false)}
+                className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl"
+              >
+                Fechar
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  await checkSupabaseConnection();
+                  await forceSyncToSupabase();
+                  setShowSqlModal(false);
+                }}
+                className="px-4 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-xs"
+              >
+                Já executei no Supabase! Testar agora
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* SELETOR DE ABAS PRINCIPAIS */}
       <div className="flex items-center justify-between border-b border-slate-200 pb-3">
         <div className="flex items-center gap-2">

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import {
   DatabaseSchema,
   Setor,
@@ -15,6 +15,7 @@ import {
 } from './types';
 import { INITIAL_DATABASE_DATA } from './default-data';
 import { getDemoLancamentos } from './demo-data';
+import { getSupabaseBrowserClient, SUPABASE_CONFIG, SUPABASE_SQL_SETUP } from './supabase';
 
 const STORAGE_KEY = 'gestao_producao_db_v2';
 const STORAGE_KEY_BACKUP = 'gestao_producao_backup_v2';
@@ -22,20 +23,47 @@ const LEGACY_STORAGE_KEYS = ['gestao_producao_backup_v2', 'gestao_producao_db_v2
 
 function getStoredLocalData(): DatabaseSchema | null {
   if (typeof window === 'undefined') return null;
+
+  let accumulated: DatabaseSchema | null = null;
+
+  // 1. Varredura e mesclagem das chaves padrão conhecidas
   for (const key of LEGACY_STORAGE_KEYS) {
     try {
       const raw = localStorage.getItem(key);
       if (raw) {
         const parsed = JSON.parse(raw);
         if (parsed && Array.isArray(parsed.setores) && parsed.setores.length > 0) {
-          return parsed as DatabaseSchema;
+          if (!accumulated) {
+            accumulated = parsed as DatabaseSchema;
+          } else {
+            accumulated = mergeDatabases(accumulated, parsed as DatabaseSchema);
+          }
         }
       }
     } catch {
-      // continua procurando nas outras chaves
+      // continua procurando
     }
   }
-  return null;
+
+  // 2. Varredura de resgate: procura em qualquer chave do localStorage que contenha dados de produção
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const storageKey = localStorage.key(i);
+      if (storageKey && (storageKey.includes('gestao') || storageKey.includes('producao')) && !LEGACY_STORAGE_KEYS.includes(storageKey)) {
+        const raw = localStorage.getItem(storageKey);
+        if (raw && raw.includes('lancamentosProducao')) {
+          const parsed = JSON.parse(raw);
+          if (parsed && Array.isArray(parsed.lancamentosProducao) && parsed.lancamentosProducao.length > 0) {
+            accumulated = mergeDatabases(accumulated, parsed as DatabaseSchema);
+          }
+        }
+      }
+    }
+  } catch {
+    // continua
+  }
+
+  return accumulated;
 }
 
 function saveToLocalStorages(data: DatabaseSchema) {
@@ -178,6 +206,17 @@ interface ProductionContextType {
   updateLancamentoProducao: (id: string, item: Partial<LancamentoProducao>) => void;
   deleteLancamentoProducao: (id: string, softDelete?: boolean) => void;
 
+  // Lançamentos Atômicos de Produção com Parada Integrada (Previne sobrescrita e race conditions)
+  addLancamentoProducaoComParada: (
+    item: Omit<LancamentoProducao, 'id' | 'createdAt' | 'updatedAt' | 'percentualPerda' | 'produtividadeKgHora'>,
+    parada?: Omit<LancamentoParada, 'id' | 'createdAt'> | null
+  ) => LancamentoProducao;
+  updateLancamentoProducaoComParada: (
+    id: string,
+    item: Partial<LancamentoProducao>,
+    parada?: Omit<LancamentoParada, 'id' | 'createdAt'> | null
+  ) => void;
+
   // Lançamentos de Parada
   addLancamentoParada: (item: Omit<LancamentoParada, 'id' | 'createdAt'>) => void;
   deleteLancamentoParada: (id: string) => void;
@@ -199,6 +238,7 @@ const ProductionContext = createContext<ProductionContextType | undefined>(undef
 
 export function ProductionProvider({ children }: { children: React.ReactNode }) {
   const [data, setData] = useState<DatabaseSchema>(INITIAL_DATABASE_DATA);
+  const dataRef = useRef<DatabaseSchema>(INITIAL_DATABASE_DATA);
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatusMessage, setSaveStatusMessage] = useState<string | null>(null);
@@ -213,6 +253,68 @@ export function ProductionProvider({ children }: { children: React.ReactNode }) 
 
   const checkSupabaseConnection = useCallback(async () => {
     setSupabaseInfo((prev) => ({ ...prev, isChecking: true }));
+
+    // 1. Tenta teste direto via cliente do navegador
+    const browserClient = getSupabaseBrowserClient();
+    if (browserClient) {
+      try {
+        const { error: readError } = await browserClient
+          .from(SUPABASE_CONFIG.tableName)
+          .select('id, updated_at')
+          .limit(1);
+
+        if (!readError) {
+          // Testa gravação para validar se a RLS não está bloqueando
+          const { error: writeError } = await browserClient
+            .from(SUPABASE_CONFIG.tableName)
+            .upsert({
+              id: 'current',
+              data: dataRef.current,
+              updated_at: new Date().toISOString(),
+            });
+
+          if (!writeError) {
+            setSupabaseInfo({
+              connected: true,
+              tableExists: true,
+              source: 'supabase',
+              isChecking: false,
+              message: 'Conexão com Supabase ativa e sincronização em tempo real liberada!',
+              lastSyncedAt: new Date().toLocaleTimeString('pt-BR'),
+            });
+            return;
+          } else if (writeError.message?.includes('row-level security policy') || writeError.code === '42501') {
+            setSupabaseInfo({
+              connected: true,
+              tableExists: false,
+              source: 'local',
+              isChecking: false,
+              message: 'Tabela encontrada, mas gravação bloqueada por RLS no Supabase. Execute o script para desativar RLS.',
+              sqlSetup: SUPABASE_SQL_SETUP,
+            });
+            return;
+          }
+        } else if (
+          readError.code === 'PGRST205' ||
+          readError.message?.includes('Could not find the table') ||
+          readError.message?.includes('relation "industrial_data" does not exist')
+        ) {
+          setSupabaseInfo({
+            connected: true,
+            tableExists: false,
+            source: 'local',
+            isChecking: false,
+            message: 'Conectado ao Supabase, mas a tabela "industrial_data" ainda não foi criada. Crie-a no SQL Editor.',
+            sqlSetup: SUPABASE_SQL_SETUP,
+          });
+          return;
+        }
+      } catch {
+        // continua para a rota da API
+      }
+    }
+
+    // 2. Fallback: testa através da rota do servidor Next.js
     try {
       const res = await fetch('/api/db', {
         method: 'POST',
@@ -227,7 +329,7 @@ export function ProductionProvider({ children }: { children: React.ReactNode }) 
           source: json.tableExists ? 'supabase' : 'local',
           isChecking: false,
           message: json.message,
-          sqlSetup: json.sqlSetup,
+          sqlSetup: json.sqlSetup || SUPABASE_SQL_SETUP,
           lastSyncedAt: json.tableExists ? new Date().toLocaleTimeString('pt-BR') : undefined,
         });
         return;
@@ -246,11 +348,45 @@ export function ProductionProvider({ children }: { children: React.ReactNode }) 
   const forceSyncToSupabase = useCallback(async (): Promise<boolean> => {
     setIsSaving(true);
     setSaveStatusMessage('Sincronizando com Supabase...');
+    const current = dataRef.current;
+
+    // 1. Gravação direta pelo navegador se cliente estiver configurado
+    const browserClient = getSupabaseBrowserClient();
+    if (browserClient) {
+      try {
+        const { error } = await browserClient
+          .from(SUPABASE_CONFIG.tableName)
+          .upsert({
+            id: 'current',
+            data: current,
+            updated_at: new Date().toISOString(),
+          });
+
+        if (!error) {
+          setSaveStatusMessage('Sincronizado no Supabase!');
+          setSupabaseInfo((prev) => ({
+            ...prev,
+            connected: true,
+            tableExists: true,
+            source: 'supabase',
+            lastSyncedAt: new Date().toLocaleTimeString('pt-BR'),
+            message: 'Todos os cadastros e apontamentos foram sincronizados em nuvem.',
+          }));
+          setTimeout(() => setSaveStatusMessage(null), 3000);
+          setIsSaving(false);
+          return true;
+        }
+      } catch {
+        // continua para a rota da API
+      }
+    }
+
+    // 2. Gravação através da API
     try {
       const res = await fetch('/api/db', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'save_all', data }),
+        body: JSON.stringify({ action: 'save_all', data: current }),
       });
       if (res.ok) {
         const json = await res.json();
@@ -266,63 +402,74 @@ export function ProductionProvider({ children }: { children: React.ReactNode }) 
           }));
           setTimeout(() => setSaveStatusMessage(null), 3000);
           return true;
-        } else {
-          setSaveStatusMessage('Tabela não encontrada no Supabase');
-          setTimeout(() => setSaveStatusMessage(null), 3000);
-          return false;
         }
       }
-    } catch {
-      setSaveStatusMessage('Erro de conexão ao sincronizar');
-      setTimeout(() => setSaveStatusMessage(null), 3000);
-      return false;
-    } finally {
-      setIsSaving(false);
-    }
+    } catch {}
+
+    setSaveStatusMessage('Tabela não encontrada no Supabase');
+    setTimeout(() => setSaveStatusMessage(null), 3000);
+    setIsSaving(false);
     return false;
-  }, [data]);
+  }, []);
 
   // Carrega dados e atualiza de forma segura sem perder lançamentos
   const refreshData = useCallback(async () => {
     const currentLocal = getStoredLocalData();
-    try {
-      setIsSaving(true);
-      const res = await fetch('/api/db', { cache: 'no-store' });
-      if (res.ok) {
-        const json = await res.json();
-        const serverData = json.data as DatabaseSchema | undefined;
-        const merged = mergeDatabases(currentLocal, serverData || null);
-        setData(merged);
-        saveToLocalStorages(merged);
+    setIsSaving(true);
 
-        setSupabaseInfo((prev) => ({
-          ...prev,
-          connected: !!json.supabaseConfigured,
-          tableExists: json.source?.startsWith('supabase'),
-          source: json.source || 'local',
-          sqlSetup: json.sqlSetup,
-          message: json.source?.startsWith('supabase')
-            ? 'Conectado ao Supabase com dados reais'
-            : 'Armazenamento persistente local ativo',
-          lastSyncedAt: json.source?.startsWith('supabase')
-            ? new Date().toLocaleTimeString('pt-BR')
-            : undefined,
-        }));
-        setIsSaving(false);
-        return;
+    // Tenta cliente direto do navegador
+    let loadedData: DatabaseSchema | null = null;
+    let fromSupa = false;
+    const browserClient = getSupabaseBrowserClient();
+    if (browserClient) {
+      try {
+        const { data: row, error } = await browserClient
+          .from(SUPABASE_CONFIG.tableName)
+          .select('data, updated_at')
+          .eq('id', 'current')
+          .maybeSingle();
+
+        if (!error && row?.data && (row.data as DatabaseSchema).setores) {
+          loadedData = row.data as DatabaseSchema;
+          fromSupa = true;
+        }
+      } catch {}
+    }
+
+    try {
+      if (!loadedData) {
+        const res = await fetch('/api/db', { cache: 'no-store' });
+        if (res.ok) {
+          const json = await res.json();
+          loadedData = (json.data as DatabaseSchema) || null;
+          fromSupa = !!json.source?.startsWith('supabase');
+        }
       }
+
+      const merged = mergeDatabases(currentLocal, loadedData);
+      dataRef.current = merged;
+      setData(merged);
+      saveToLocalStorages(merged);
+
+      setSupabaseInfo((prev) => ({
+        ...prev,
+        connected: true,
+        tableExists: fromSupa,
+        source: fromSupa ? 'supabase' : 'local',
+        sqlSetup: prev.sqlSetup || SUPABASE_SQL_SETUP,
+        message: fromSupa
+          ? 'Conectado ao Supabase com dados reais'
+          : 'Armazenamento persistente local ativo (Supabase pendente)',
+        lastSyncedAt: fromSupa ? new Date().toLocaleTimeString('pt-BR') : undefined,
+      }));
     } catch {
-      // Fallback para dados locais
+      if (currentLocal) {
+        dataRef.current = currentLocal;
+        setData(currentLocal);
+      }
     } finally {
       setIsSaving(false);
     }
-
-    if (currentLocal) {
-      setData(currentLocal);
-      return;
-    }
-
-    setData(INITIAL_DATABASE_DATA);
   }, []);
 
   useEffect(() => {
@@ -331,52 +478,89 @@ export function ProductionProvider({ children }: { children: React.ReactNode }) 
     // 1. Carregamento Imediato do Cache Local para visualização instantânea sem tela zerada
     const immediateLocal = getStoredLocalData();
     if (immediateLocal) {
+      dataRef.current = immediateLocal;
       setData(immediateLocal);
       setLoading(false);
     }
 
     async function initData() {
+      let supaLoadedData: DatabaseSchema | null = null;
+      let supaConnected = false;
+      let supaTableOk = false;
+
+      // Consulta direta via Supabase browser client
+      const browserClient = getSupabaseBrowserClient();
+      if (browserClient) {
+        try {
+          const { data: row, error } = await browserClient
+            .from(SUPABASE_CONFIG.tableName)
+            .select('data, updated_at')
+            .eq('id', 'current')
+            .maybeSingle();
+
+          if (!error) {
+            supaConnected = true;
+            supaTableOk = true;
+            if (row?.data && (row.data as DatabaseSchema).setores) {
+              supaLoadedData = row.data as DatabaseSchema;
+            }
+          } else {
+            if (error.code === 'PGRST205' || error.message?.includes('Could not find the table')) {
+              supaConnected = true;
+              supaTableOk = false;
+            }
+          }
+        } catch {}
+      }
+
       try {
         const res = await fetch('/api/db', { cache: 'no-store' });
         if (!active) return;
-        if (res.ok) {
-          const json = await res.json();
-          const serverData = json.data as DatabaseSchema | undefined;
+        const json = res.ok ? await res.json() : null;
+        const serverData = (supaLoadedData || json?.data) as DatabaseSchema | undefined;
 
-          // Mescla de forma inteligente: NUNCA zera o que o usuário cadastrou
-          const currentLocal = getStoredLocalData();
-          const merged = mergeDatabases(currentLocal || immediateLocal, serverData || null);
-          setData(merged);
-          saveToLocalStorages(merged);
+        // Mescla de forma inteligente: NUNCA zera o que o usuário cadastrou
+        const currentLocal = getStoredLocalData();
+        const merged = mergeDatabases(currentLocal || immediateLocal, serverData || null);
+        dataRef.current = merged;
+        setData(merged);
+        saveToLocalStorages(merged);
 
-          // Se o navegador tem lançamentos que o servidor não possui (ex: após deploy na Vercel),
-          // envia de volta para atualizar a memória do servidor
-          const localLancamentosCount = (currentLocal?.lancamentosProducao?.length || immediateLocal?.lancamentosProducao?.length || 0);
-          const serverLancamentosCount = serverData?.lancamentosProducao?.length || 0;
-          if (localLancamentosCount > serverLancamentosCount) {
-            fetch('/api/db', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ action: 'save_all', data: merged }),
-            }).catch(() => {});
+        const isSupabase = supaTableOk || !!json?.source?.startsWith('supabase');
+
+        // Se local tem mais lançamentos que a nuvem, sincroniza a nuvem com os dados locais
+        const localCount = (currentLocal?.lancamentosProducao?.length || immediateLocal?.lancamentosProducao?.length || 0);
+        const serverCount = serverData?.lancamentosProducao?.length || 0;
+        if (localCount > serverCount && isSupabase) {
+          if (browserClient) {
+            Promise.resolve(
+              browserClient.from(SUPABASE_CONFIG.tableName).upsert({
+                id: 'current',
+                data: merged,
+                updated_at: new Date().toISOString(),
+              })
+            ).catch(() => {});
           }
-
-          setSupabaseInfo({
-            connected: !!json.supabaseConfigured,
-            tableExists: json.source?.startsWith('supabase'),
-            source: json.source || 'local',
-            isChecking: false,
-            sqlSetup: json.sqlSetup,
-            message: json.source?.startsWith('supabase')
-              ? 'Conectado e sincronizado com Supabase'
-              : 'Armazenamento persistente local ativo',
-            lastSyncedAt: json.source?.startsWith('supabase')
-              ? new Date().toLocaleTimeString('pt-BR')
-              : undefined,
-          });
-          setLoading(false);
-          return;
+          fetch('/api/db', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'save_all', data: merged }),
+          }).catch(() => {});
         }
+
+        setSupabaseInfo({
+          connected: supaConnected || !!json?.supabaseConfigured,
+          tableExists: isSupabase,
+          source: isSupabase ? 'supabase' : 'local',
+          isChecking: false,
+          sqlSetup: json?.sqlSetup || SUPABASE_SQL_SETUP,
+          message: isSupabase
+            ? 'Conectado e sincronizado com Supabase'
+            : 'Armazenamento persistente local ativo (Supabase pendente)',
+          lastSyncedAt: isSupabase ? new Date().toLocaleTimeString('pt-BR') : undefined,
+        });
+        setLoading(false);
+        return;
       } catch {
         // Falha na requisição: mantém dados locais
       }
@@ -386,8 +570,10 @@ export function ProductionProvider({ children }: { children: React.ReactNode }) 
       if (!immediateLocal) {
         const local = getStoredLocalData();
         if (local) {
+          dataRef.current = local;
           setData(local);
         } else {
+          dataRef.current = INITIAL_DATABASE_DATA;
           setData(INITIAL_DATABASE_DATA);
           saveToLocalStorages(INITIAL_DATABASE_DATA);
         }
@@ -403,11 +589,59 @@ export function ProductionProvider({ children }: { children: React.ReactNode }) 
 
   // Função para salvar estado com dupla camada de persistência
   const persistState = useCallback(async (newData: DatabaseSchema) => {
+    // 1. Atualiza imediatamente o ref e state síncrono para anular qualquer race condition
+    dataRef.current = newData;
     setData(newData);
     saveToLocalStorages(newData);
 
     setIsSaving(true);
     setSaveStatusMessage('Salvando...');
+
+    let supabaseSaved = false;
+
+    // 2. Gravação direta no Supabase pelo navegador
+    const browserClient = getSupabaseBrowserClient();
+    if (browserClient) {
+      try {
+        const { error } = await browserClient
+          .from(SUPABASE_CONFIG.tableName)
+          .upsert({
+            id: 'current',
+            data: newData,
+            updated_at: new Date().toISOString(),
+          });
+
+        if (!error) {
+          supabaseSaved = true;
+          setSupabaseInfo((prev) => ({
+            ...prev,
+            connected: true,
+            tableExists: true,
+            source: 'supabase',
+            lastSyncedAt: new Date().toLocaleTimeString('pt-BR'),
+            message: 'Sincronizado na nuvem Supabase em tempo real',
+          }));
+        } else {
+          const isTableMissing = error.code === 'PGRST205' || error.message?.includes('Could not find the table') || error.message?.includes('relation "industrial_data" does not exist');
+          const isRls = error.message?.includes('row-level security policy') || error.code === '42501';
+
+          setSupabaseInfo((prev) => ({
+            ...prev,
+            connected: true,
+            tableExists: false,
+            source: 'local',
+            message: isTableMissing
+              ? 'Tabela industrial_data não encontrada no Supabase'
+              : isRls
+              ? 'Gravação bloqueada por RLS no Supabase'
+              : `Supabase: ${error.message}`,
+            sqlSetup: SUPABASE_SQL_SETUP,
+          }));
+        }
+      } catch {}
+    }
+
+    // 3. Gravação redundante na API
     try {
       const res = await fetch('/api/db', {
         method: 'POST',
@@ -416,7 +650,7 @@ export function ProductionProvider({ children }: { children: React.ReactNode }) 
       });
       if (res.ok) {
         const json = await res.json();
-        if (json.syncedToSupabase) {
+        if (json.syncedToSupabase || supabaseSaved) {
           setSaveStatusMessage('Salvo no Supabase');
           setSupabaseInfo((prev) => ({
             ...prev,
@@ -426,14 +660,14 @@ export function ProductionProvider({ children }: { children: React.ReactNode }) 
             lastSyncedAt: new Date().toLocaleTimeString('pt-BR'),
           }));
         } else {
-          setSaveStatusMessage('Salvo com sucesso');
+          setSaveStatusMessage('Salvo no dispositivo');
         }
       } else {
-        setSaveStatusMessage('Salvo no navegador');
+        setSaveStatusMessage(supabaseSaved ? 'Salvo no Supabase' : 'Salvo no navegador');
       }
       setTimeout(() => setSaveStatusMessage(null), 2500);
     } catch {
-      setSaveStatusMessage('Salvo no navegador');
+      setSaveStatusMessage(supabaseSaved ? 'Salvo no Supabase' : 'Salvo no navegador');
       setTimeout(() => setSaveStatusMessage(null), 2500);
     } finally {
       setIsSaving(false);
@@ -666,6 +900,18 @@ export function ProductionProvider({ children }: { children: React.ReactNode }) 
   const addLancamentoProducao = (
     item: Omit<LancamentoProducao, 'id' | 'createdAt' | 'updatedAt' | 'percentualPerda' | 'produtividadeKgHora'>
   ): LancamentoProducao => {
+    return addLancamentoProducaoComParada(item, null);
+  };
+
+  const updateLancamentoProducao = (id: string, item: Partial<LancamentoProducao>) => {
+    updateLancamentoProducaoComParada(id, item, null);
+  };
+
+  // GRAVAÇÃO ATÔMICA: PRODUÇÃO + PARADA (Elimina qualquer risco de sobrescrita e race conditions)
+  const addLancamentoProducaoComParada = (
+    item: Omit<LancamentoProducao, 'id' | 'createdAt' | 'updatedAt' | 'percentualPerda' | 'produtividadeKgHora'>,
+    parada?: Omit<LancamentoParada, 'id' | 'createdAt'> | null
+  ): LancamentoProducao => {
     const now = new Date().toISOString();
     const refugo = Number(item.refugoKg) || 0;
     const perda = Number(item.perdaKg) || 0;
@@ -692,74 +938,122 @@ export function ProductionProvider({ children }: { children: React.ReactNode }) 
       updatedAt: now,
     };
 
-    persistState({
-      ...data,
-      lancamentosProducao: [novoLancamento, ...data.lancamentosProducao],
-    });
+    const current = dataRef.current;
+    let novosParadas = current.lancamentosParada;
 
+    if (parada && (parada.tempoMinutos > 0 || Number(item.tempoParadoMinutos) > 0)) {
+      const novoApontamento: LancamentoParada = {
+        ...parada,
+        lancamentoProducaoId: novoLancamento.id,
+        id: `par-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        createdAt: now,
+      };
+      novosParadas = [novoApontamento, ...novosParadas];
+    }
+
+    const nextState: DatabaseSchema = {
+      ...current,
+      lancamentosProducao: [novoLancamento, ...current.lancamentosProducao],
+      lancamentosParada: novosParadas,
+    };
+
+    persistState(nextState);
     return novoLancamento;
   };
 
-  const updateLancamentoProducao = (id: string, item: Partial<LancamentoProducao>) => {
+  const updateLancamentoProducaoComParada = (
+    id: string,
+    item: Partial<LancamentoProducao>,
+    parada?: Omit<LancamentoParada, 'id' | 'createdAt'> | null
+  ) => {
     const now = new Date().toISOString();
-    persistState({
-      ...data,
-      lancamentosProducao: data.lancamentosProducao.map((l) => {
-        if (l.id !== id) return l;
-        const merged = { ...l, ...item, updatedAt: now };
-        
-        // Recalcular indicadores derivados caso pesos ou tempos tenham sido alterados
-        const refugo = Number(merged.refugoKg) || 0;
-        const perda = Number(merged.perdaKg) || 0;
-        const bruto = Number(merged.quantidadeBrutaKg) || 0;
-        const totalDescarte = refugo + perda;
-        const percentualPerda = bruto > 0
-          ? Number(((totalDescarte / bruto) * 100).toFixed(2))
-          : 0;
+    const current = dataRef.current;
 
-        const horasTrabalhadas = (Number(merged.tempoTrabalhadoMinutos) || 0) / 60;
-        const produtividadeKgHora = horasTrabalhadas > 0
-          ? Number(((Number(merged.quantidadeLiquidaKg) || 0) / horasTrabalhadas).toFixed(2))
-          : 0;
+    const updatedLancamentos = current.lancamentosProducao.map((l) => {
+      if (l.id !== id) return l;
+      const merged = { ...l, ...item, updatedAt: now };
 
-        return {
-          ...merged,
-          refugoKg: refugo,
-          perdaKg: perda,
-          percentualPerda,
-          produtividadeKgHora,
-        };
-      }),
+      const refugo = Number(merged.refugoKg) || 0;
+      const perda = Number(merged.perdaKg) || 0;
+      const bruto = Number(merged.quantidadeBrutaKg) || 0;
+      const totalDescarte = refugo + perda;
+      const percentualPerda = bruto > 0
+        ? Number(((totalDescarte / bruto) * 100).toFixed(2))
+        : 0;
+
+      const horasTrabalhadas = (Number(merged.tempoTrabalhadoMinutos) || 0) / 60;
+      const produtividadeKgHora = horasTrabalhadas > 0
+        ? Number(((Number(merged.quantidadeLiquidaKg) || 0) / horasTrabalhadas).toFixed(2))
+        : 0;
+
+      return {
+        ...merged,
+        refugoKg: refugo,
+        perdaKg: perda,
+        percentualPerda,
+        produtividadeKgHora,
+      };
     });
+
+    let updatedParadas = current.lancamentosParada;
+    if (parada && (parada.tempoMinutos > 0 || Number(item.tempoParadoMinutos) > 0)) {
+      const existingIdx = updatedParadas.findIndex((p) => p.lancamentoProducaoId === id);
+      if (existingIdx >= 0) {
+        updatedParadas = updatedParadas.map((p, idx) =>
+          idx === existingIdx ? { ...p, ...parada } : p
+        );
+      } else {
+        updatedParadas = [
+          {
+            ...parada,
+            lancamentoProducaoId: id,
+            id: `par-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+            createdAt: now,
+          },
+          ...updatedParadas,
+        ];
+      }
+    }
+
+    const nextState: DatabaseSchema = {
+      ...current,
+      lancamentosProducao: updatedLancamentos,
+      lancamentosParada: updatedParadas,
+    };
+
+    persistState(nextState);
   };
 
   const deleteLancamentoProducao = (id: string, softDelete = true) => {
+    const current = dataRef.current;
     persistState({
-      ...data,
+      ...current,
       lancamentosProducao: softDelete
-        ? data.lancamentosProducao.map((l) => (l.id === id ? { ...l, isDeleted: true, updatedAt: new Date().toISOString() } : l))
-        : data.lancamentosProducao.filter((l) => l.id !== id),
+        ? current.lancamentosProducao.map((l) => (l.id === id ? { ...l, isDeleted: true, updatedAt: new Date().toISOString() } : l))
+        : current.lancamentosProducao.filter((l) => l.id !== id),
     });
   };
 
   // LANÇAMENTOS DE PARADA
   const addLancamentoParada = (item: Omit<LancamentoParada, 'id' | 'createdAt'>) => {
     const now = new Date().toISOString();
+    const current = dataRef.current;
     const novoApontamento: LancamentoParada = {
       ...item,
       id: `par-${Date.now()}`,
       createdAt: now,
     };
     persistState({
-      ...data,
-      lancamentosParada: [novoApontamento, ...data.lancamentosParada],
+      ...current,
+      lancamentosParada: [novoApontamento, ...current.lancamentosParada],
     });
   };
 
   const deleteLancamentoParada = (id: string) => {
+    const current = dataRef.current;
     persistState({
-      ...data,
-      lancamentosParada: data.lancamentosParada.filter((p) => p.id !== id),
+      ...current,
+      lancamentosParada: current.lancamentosParada.filter((p) => p.id !== id),
     });
   };
 
@@ -905,6 +1199,8 @@ export function ProductionProvider({ children }: { children: React.ReactNode }) 
         addLancamentoProducao,
         updateLancamentoProducao,
         deleteLancamentoProducao,
+        addLancamentoProducaoComParada,
+        updateLancamentoProducaoComParada,
         addLancamentoParada,
         deleteLancamentoParada,
         updateRegraPremiacao,
