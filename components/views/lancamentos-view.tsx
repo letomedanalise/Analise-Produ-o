@@ -5,6 +5,7 @@ import { useProductionDB } from '@/lib/db-context';
 import { LancamentoProducao } from '@/lib/types';
 import { SUPABASE_SQL_SETUP } from '@/lib/supabase';
 import { parseLancamentosFile, downloadImportTemplate, ImportLancamentosResult } from '@/lib/import-lancamentos';
+import { formatYMDToBR } from '@/lib/production-analytics';
 import { RtlDecimalInput } from '@/components/ui/rtl-decimal-input';
 import {
   ClipboardPenLine,
@@ -42,6 +43,8 @@ import {
 
 type ViewMode = 'list' | 'select_sector' | 'form';
 type FormMode = 'create' | 'edit' | 'duplicate';
+
+const PAGINA_TAMANHO = 20;
 
 interface SessionMemory {
   data: string;
@@ -182,6 +185,9 @@ export function LancamentosView({ navResetKey = 0 }: { navResetKey?: number }) {
     buscaTexto: '',
   });
 
+  // Paginação da tabela de histórico
+  const [paginaAtual, setPaginaAtual] = useState(1);
+
   // Helpers de nomes
   const getSetor = (id: string) => data.setores.find((s) => s.id === id);
   const getSetorName = (id: string) => getSetor(id)?.nome || id;
@@ -197,15 +203,15 @@ export function LancamentosView({ navResetKey = 0 }: { navResetKey?: number }) {
     return list.length > 0 ? list : data.maquinas.filter((m) => m.ativo);
   }, [data.maquinas, selectedSetorId]);
 
-  const operadoresDoSetor = useMemo(() => {
-    const list = data.operadores.filter((op) => op.ativo && op.setorId === selectedSetorId);
-    return list.length > 0 ? list : data.operadores.filter((op) => op.ativo);
-  }, [data.operadores, selectedSetorId]);
+  const operadoresDisponiveis = useMemo(
+    () => data.operadores.filter((op) => op.ativo),
+    [data.operadores]
+  );
 
-  const produtosDoSetor = useMemo(() => {
-    const list = data.produtos.filter((p) => p.ativo && p.setorOrigemId === selectedSetorId);
-    return list.length > 0 ? list : data.produtos.filter((p) => p.ativo);
-  }, [data.produtos, selectedSetorId]);
+  const produtosDisponiveis = useMemo(
+    () => data.produtos.filter((p) => p.ativo),
+    [data.produtos]
+  );
 
   // Iniciar novo lançamento: sempre direciona para a tela de escolha do setor "Qual setor deseja lançar?"
   const handleStartNovoLancamento = () => {
@@ -257,10 +263,8 @@ export function LancamentosView({ navResetKey = 0 }: { navResetKey?: number }) {
 
     const maqs = data.maquinas.filter((m) => m.ativo && m.setorId === setorId);
     const availableMaqs = maqs.length > 0 ? maqs : data.maquinas.filter((m) => m.ativo);
-    const ops = data.operadores.filter((op) => op.ativo && op.setorId === setorId);
-    const availableOps = ops.length > 0 ? ops : data.operadores.filter((op) => op.ativo);
-    const prods = data.produtos.filter((p) => p.ativo && p.setorOrigemId === setorId);
-    const availableProds = prods.length > 0 ? prods : data.produtos.filter((p) => p.ativo);
+    const availableOps = data.operadores.filter((op) => op.ativo);
+    const availableProds = data.produtos.filter((p) => p.ativo);
 
     // Reaproveita da sessão se existir (Preenchimento Inteligente)
     const rememberedMaq = sessionMemory.maquinaIdPorSetor[setorId];
@@ -699,12 +703,29 @@ export function LancamentosView({ navResetKey = 0 }: { navResetKey?: number }) {
           if (!op.includes(q) && !obs.includes(q) && !cli.includes(q)) return false;
         }
         return true;
+      })
+      .sort((a, b) => {
+        if (a.data !== b.data) return a.data > b.data ? -1 : 1;
+        return a.createdAt > b.createdAt ? -1 : 1;
       });
   }, [data.lancamentosProducao, filters]);
 
+  // Paginação: sempre na primeira página o lançamento mais recente
+  React.useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPaginaAtual(1);
+  }, [filters]);
+
+  const totalPaginas = Math.max(1, Math.ceil(lancamentosFiltrados.length / PAGINA_TAMANHO));
+  const paginaSegura = Math.min(paginaAtual, totalPaginas);
+  const itensPagina = useMemo(() => {
+    const inicio = (paginaSegura - 1) * PAGINA_TAMANHO;
+    return lancamentosFiltrados.slice(inicio, inicio + PAGINA_TAMANHO);
+  }, [lancamentosFiltrados, paginaSegura]);
+
   // ---- SELEÇÃO EM LOTE ----
   const selectedIdsArray = Array.from(selectedIds);
-  const visibleIdsArray = lancamentosFiltrados.map((l) => l.id);
+  const visibleIdsArray = itensPagina.map((l) => l.id);
   const allVisibleSelected = visibleIdsArray.length > 0 && visibleIdsArray.every((id) => selectedIds.has(id));
   const selectedBulkItems = lancamentosFiltrados.filter((l) => selectedIds.has(l.id));
 
@@ -1292,7 +1313,7 @@ export function LancamentosView({ navResetKey = 0 }: { navResetKey?: number }) {
                           className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white font-medium focus:ring-2 focus:ring-indigo-500"
                         >
                           <option value="">Selecione o operador...</option>
-                          {operadoresDoSetor.map((op) => (
+                          {operadoresDisponiveis.map((op) => (
                             <option key={op.id} value={op.id}>
                               {op.nome}
                             </option>
@@ -1310,7 +1331,7 @@ export function LancamentosView({ navResetKey = 0 }: { navResetKey?: number }) {
                           className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white font-medium focus:ring-2 focus:ring-indigo-500"
                         >
                           <option value="">Selecione o produto...</option>
-                          {produtosDoSetor.map((p) => (
+                          {produtosDisponiveis.map((p) => (
                             <option key={p.id} value={p.id}>
                               {p.descricao}
                             </option>
@@ -1849,6 +1870,7 @@ export function LancamentosView({ navResetKey = 0 }: { navResetKey?: number }) {
                     </button>
                   </div>
                 ) : (
+                  <>
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-xs border-collapse">
                       <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase text-[10px]">
@@ -1876,7 +1898,7 @@ export function LancamentosView({ navResetKey = 0 }: { navResetKey?: number }) {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {lancamentosFiltrados.map((l) => {
+                        {itensPagina.map((l) => {
                           const descarteKg = (l.refugoKg || 0) + (l.perdaKg || 0);
                           const taxaDescarte = l.quantidadeBrutaKg > 0
                             ? ((descarteKg / l.quantidadeBrutaKg) * 100).toFixed(2)
@@ -1896,7 +1918,7 @@ export function LancamentosView({ navResetKey = 0 }: { navResetKey?: number }) {
 
                               {/* Data e OP */}
                               <td className="py-3 px-3 whitespace-nowrap">
-                                <div className="font-bold text-slate-900">{l.data}</div>
+                                <div className="font-bold text-slate-900">{formatYMDToBR(l.data)}</div>
                                 <div className="text-[11px] font-mono text-indigo-600">{l.ordemProducao || 'S/ OP'}</div>
                               </td>
 
@@ -2023,6 +2045,35 @@ export function LancamentosView({ navResetKey = 0 }: { navResetKey?: number }) {
                       </tbody>
                     </table>
                   </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-slate-50/50 px-4 py-3">
+                    <div className="text-xs text-slate-500">
+                      Exibindo <strong className="text-slate-700">{itensPagina.length}</strong> de{' '}
+                      <strong className="text-slate-700">{lancamentosFiltrados.length}</strong> lançamentos
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setPaginaAtual((p) => Math.max(1, p - 1))}
+                        disabled={paginaSegura <= 1}
+                        className="px-3 py-1.5 text-xs font-semibold text-slate-600 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg border border-slate-200 shadow-xs transition-colors"
+                      >
+                        Anterior
+                      </button>
+                      <span className="px-2 text-xs font-bold text-indigo-600">
+                        {paginaSegura} / {totalPaginas}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setPaginaAtual((p) => Math.min(totalPaginas, p + 1))}
+                        disabled={paginaSegura >= totalPaginas}
+                        className="px-3 py-1.5 text-xs font-semibold text-slate-600 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg border border-slate-200 shadow-xs transition-colors"
+                      >
+                        Próxima
+                      </button>
+                    </div>
+                  </div>
+                  </>
                 )}
               </div>
             </div>
@@ -2058,7 +2109,7 @@ export function LancamentosView({ navResetKey = 0 }: { navResetKey?: number }) {
                 <div>
                   <span className="text-slate-500 block text-[11px]">Data / Horário</span>
                   <strong className="text-slate-800">
-                    {viewingItem.data}
+                    {formatYMDToBR(viewingItem.data)}
                     {viewingItem.horaInicio && viewingItem.horaFim ? ` • ${viewingItem.horaInicio} às ${viewingItem.horaFim}` : ''}
                   </strong>
                 </div>
@@ -2272,7 +2323,7 @@ export function LancamentosView({ navResetKey = 0 }: { navResetKey?: number }) {
               {selectedBulkItems.map((l) => (
                 <div key={l.id} className="flex items-center justify-between gap-2">
                   <span>
-                    {l.data} · {getMaquinaName(l.maquinaId)}
+                    {formatYMDToBR(l.data)} · {getMaquinaName(l.maquinaId)}
                   </span>
                   <span className="text-slate-400">{getOperadorName(l.operadorId)} · {l.quantidadeBrutaKg.toFixed(2)} kg</span>
                 </div>
