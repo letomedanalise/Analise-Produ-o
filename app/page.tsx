@@ -67,8 +67,19 @@ const TAB_TITLES: Record<TabKey, { title: string; subtitle: string }> = {
 
 function MainContent() {
   const [activeTab, setActiveTab] = useState<TabKey>('dashboard');
+  const [navResetKey, setNavResetKey] = useState(0);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+
+  // Sempre que o usuário clica no item de um menu, volta para a página
+  // inicial daquele menu (mesmo que já esteja numa sub-tela preenchendo dados).
+  const handleSelectTab = (tab: TabKey) => {
+    if (tab === activeTab) {
+      setNavResetKey((k) => k + 1);
+    } else {
+      setActiveTab(tab);
+    }
+  };
 
   const currentTabInfo = TAB_TITLES[activeTab] || {
     title: 'PCP Industrial',
@@ -80,7 +91,7 @@ function MainContent() {
       case 'dashboard':
         return <DashboardView onNavigate={(tab) => setActiveTab(tab)} />;
       case 'lancamentos':
-        return <LancamentosView />;
+        return <LancamentosView navResetKey={navResetKey} />;
       case 'producao':
         return <ProducaoView onNavigate={(tab) => setActiveTab(tab)} />;
       case 'perdas':
@@ -115,7 +126,7 @@ function MainContent() {
       {/* Menu Lateral */}
       <Sidebar
         activeTab={activeTab}
-        onSelectTab={(tab) => setActiveTab(tab)}
+        onSelectTab={handleSelectTab}
         collapsed={sidebarCollapsed}
         setCollapsed={setSidebarCollapsed}
         mobileOpen={mobileSidebarOpen}

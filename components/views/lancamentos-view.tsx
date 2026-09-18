@@ -4,6 +4,7 @@ import React, { useState, useMemo } from 'react';
 import { useProductionDB } from '@/lib/db-context';
 import { LancamentoProducao } from '@/lib/types';
 import { SUPABASE_SQL_SETUP } from '@/lib/supabase';
+import { parseLancamentosFile, downloadImportTemplate, ImportLancamentosResult } from '@/lib/import-lancamentos';
 import { RtlDecimalInput } from '@/components/ui/rtl-decimal-input';
 import {
   ClipboardPenLine,
@@ -33,6 +34,10 @@ import {
   TrendingUp,
   Factory,
   Database,
+  FileSpreadsheet,
+  Upload,
+  Download,
+  Loader2,
 } from 'lucide-react';
 
 type ViewMode = 'list' | 'select_sector' | 'form';
@@ -79,20 +84,25 @@ function formatarTempoMinutos(minutos: number): string {
   return `${h}h ${m.toString().padStart(2, '0')}min`;
 }
 
-export function LancamentosView() {
+export function LancamentosView({ navResetKey = 0 }: { navResetKey?: number }) {
   const {
     data,
     addLancamentoProducao,
     updateLancamentoProducao,
     deleteLancamentoProducao,
+    deleteLancamentosProducao,
     addLancamentoProducaoComParada,
     updateLancamentoProducaoComParada,
+    importLancamentos,
     checkSupabaseConnection,
     forceSyncToSupabase,
   } = useProductionDB();
 
   const [copiedSql, setCopiedSql] = useState(false);
   const [showSqlModal, setShowSqlModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<ImportLancamentosResult | null>(null);
 
   // Modo de navegação no módulo de produção
   const [viewMode, setViewMode] = useState<ViewMode>('list');
@@ -103,9 +113,22 @@ export function LancamentosView() {
   // Modais auxiliares
   const [viewingItem, setViewingItem] = useState<LancamentoProducao | null>(null);
   const [deletingItem, setDeletingItem] = useState<LancamentoProducao | null>(null);
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
+
+  // Seleção em lote no histórico
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [pendingSubmit, setPendingSubmit] = useState<boolean>(false);
   const [showAtypicalWarning, setShowAtypicalWarning] = useState<string | null>(null);
   const [saveBanner, setSaveBanner] = useState<{ id: string; op: string; setorId: string } | null>(null);
+
+  // Ao clicar no menu "Lançamentos" de novo, volta para a página inicial (histórico/lista)
+  React.useEffect(() => {
+    if (navResetKey > 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setViewMode('list');
+      setSaveBanner(null);
+    }
+  }, [navResetKey]);
 
   // Memória inteligente de sessão (Requisito 15)
   const [sessionMemory, setSessionMemory] = useState<SessionMemory>(() => ({
@@ -188,6 +211,41 @@ export function LancamentosView() {
   const handleStartNovoLancamento = () => {
     setSaveBanner(null);
     setViewMode('select_sector');
+  };
+
+  // Importação em lote de lançamentos via planilha Excel/CSV
+  const handleImportFile = async (file: File) => {
+    setImporting(true);
+    setImportResult(null);
+    try {
+      const parsed = await parseLancamentosFile(file);
+      if (parsed.rows.length === 0) {
+        setImportResult({
+          total: 0,
+          imported: 0,
+          skipped: 0,
+          created: { setores: 0, maquinas: 0, operadores: 0, produtos: 0, turnos: 0, motivos: 0 },
+          errors: parsed.errors,
+        });
+        return;
+      }
+      const result = importLancamentos(parsed.rows);
+      setImportResult({
+        ...result,
+        errors: [...parsed.errors, ...result.errors],
+      });
+      setViewMode('list');
+    } catch (err) {
+      setImportResult({
+        total: 0,
+        imported: 0,
+        skipped: 0,
+        created: { setores: 0, maquinas: 0, operadores: 0, produtos: 0, turnos: 0, motivos: 0 },
+        errors: [`Não foi possível ler o arquivo: ${(err as Error).message}`],
+      });
+    } finally {
+      setImporting(false);
+    }
   };
 
   // Selecionar o setor e abrir o formulário com dados inteligentes (Requisitos 1, 14, 15)
@@ -291,47 +349,14 @@ export function LancamentosView() {
   }, [formData.horaInicio, formData.horaFim]);
 
   // Handlers independentes do bloco de pesos (RTL 0,00)
-  const handleBrutoChange = (bruto: number) => {
-    const r = formData.refugoKg;
-    const p = formData.perdaKg;
-    const liquido = Math.max(0, Number((bruto - r - p).toFixed(2)));
-    setFormData((prev) => ({
-      ...prev,
-      quantidadeBrutaKg: bruto,
-      quantidadeLiquidaKg: liquido,
-    }));
-  };
-
+  // Padronizado para todos os setores: Produção Boa, Refugo e Perda são digitados
+  // e a Matéria-Prima Alimentada é sempre calculada (Produção Boa + Refugo + Perda).
   const handleRefugoChange = (refugo: number) => {
-    if (selectedSetorId === 'set-cs') {
-      // Corte e Solda: Produção Boa é digitada, refugo não altera a boa
-      setFormData((prev) => ({ ...prev, refugoKg: refugo }));
-      return;
-    }
-    const b = formData.quantidadeBrutaKg;
-    const p = formData.perdaKg;
-    const liquido = Math.max(0, Number((b - refugo - p).toFixed(2)));
-    setFormData((prev) => ({
-      ...prev,
-      refugoKg: refugo,
-      quantidadeLiquidaKg: liquido,
-    }));
+    setFormData((prev) => ({ ...prev, refugoKg: refugo }));
   };
 
   const handlePerdaChange = (perda: number) => {
-    if (selectedSetorId === 'set-cs') {
-      // Corte e Solda: Produção Boa é digitada, perda não altera a boa
-      setFormData((prev) => ({ ...prev, perdaKg: perda }));
-      return;
-    }
-    const b = formData.quantidadeBrutaKg;
-    const r = formData.refugoKg;
-    const liquido = Math.max(0, Number((b - r - perda).toFixed(2)));
-    setFormData((prev) => ({
-      ...prev,
-      perdaKg: perda,
-      quantidadeLiquidaKg: liquido,
-    }));
+    setFormData((prev) => ({ ...prev, perdaKg: perda }));
   };
 
   const handleLiquidoChange = (liquido: number) => {
@@ -347,11 +372,8 @@ export function LancamentosView() {
   const calcPerda = Number(formData.perdaKg) || 0;
   const calcTotalDescarte = Number((calcRefugo + calcPerda).toFixed(2));
 
-  // Corte e Solda: Matéria-Prima Alimentada é calculada (Produção Boa + Perda) e não é preenchida no formulário
-  const calcBruto =
-    selectedSetorId === 'set-cs'
-      ? Number((calcLiquido + calcPerda).toFixed(2))
-      : Number(formData.quantidadeBrutaKg) || 0;
+  // Matéria-Prima Alimentada é sempre calculada (Produção Boa + Perda), padrão Corte e Solda
+  const calcBruto = Number((calcLiquido + calcPerda).toFixed(2));
 
   const calcTotalDescartePercent = calcBruto > 0 ? ((calcTotalDescarte / calcBruto) * 100).toFixed(2) : '0.00';
 
@@ -380,21 +402,11 @@ export function LancamentosView() {
       return 'O Horário de Fim deve ser diferente do Horário de Início para calcular uma duração de trabalho válida (> 0 minutos).';
     }
 
-    // Validação flexível por setor
-    if (selectedSetorId === 'set-imp') {
-      const hasKg = calcBruto > 0;
-      const hasMetros = (Number(formData.metragemLinearMetros) || 0) > 0;
-      if (!hasKg && !hasMetros) {
-        return 'Para o setor de Impressão, informe o Peso Bruto alimentado (kg) ou a Metragem Linear (metros).';
-      }
-    } else if (selectedSetorId === 'set-cs') {
-      const hasKg = calcBruto > 0;
-      const hasQtd = (Number(formData.quantidadeUnidades) || 0) > 0 || (Number(formData.quantidadeCaixas) || 0) > 0;
-      if (!hasKg && !hasQtd) {
-        return 'Para o setor de Corte e Solda, informe a Quantidade de Caixas / Unidades ou a Produção Boa (kg).';
-      }
-    } else {
-      if (calcBruto <= 0) return 'O Peso Bruto alimentado deve ser maior que zero (0,00 kg).';
+    // Validação flexível por setor (padronizada: Produção Boa/Perda e/ou Caixas)
+    const hasKg = calcBruto > 0;
+    const hasQtd = (Number(formData.quantidadeUnidades) || 0) > 0 || (Number(formData.quantidadeCaixas) || 0) > 0;
+    if (!hasKg && !hasQtd) {
+      return 'Informe a Produção Boa (kg) e/ou a Quantidade de Caixas para calcular a Matéria-Prima Alimentada.';
     }
 
     if (calcBruto > 0 && calcTotalDescarte > calcBruto) {
@@ -419,9 +431,7 @@ export function LancamentosView() {
     const descartePct = Number(calcTotalDescartePercent);
     if (calcBruto > 5000) {
       setShowAtypicalWarning(
-        selectedSetorId === 'set-cs'
-          ? `A Matéria-Prima Alimentada calculada (${calcBruto.toLocaleString('pt-BR')} kg) parece muito acima do normal para um único turno de máquina.`
-          : `O peso bruto informado (${calcBruto.toLocaleString('pt-BR')} kg) parece muito acima do normal para um único turno de máquina.`
+        `A Matéria-Prima Alimentada calculada (${calcBruto.toLocaleString('pt-BR')} kg) parece muito acima do normal para um único turno de máquina.`
       );
       return;
     }
@@ -692,6 +702,40 @@ export function LancamentosView() {
       });
   }, [data.lancamentosProducao, filters]);
 
+  // ---- SELEÇÃO EM LOTE ----
+  const selectedIdsArray = Array.from(selectedIds);
+  const visibleIdsArray = lancamentosFiltrados.map((l) => l.id);
+  const allVisibleSelected = visibleIdsArray.length > 0 && visibleIdsArray.every((id) => selectedIds.has(id));
+  const selectedBulkItems = lancamentosFiltrados.filter((l) => selectedIds.has(l.id));
+
+  const toggleSelectItem = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAllVisible = () => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allVisibleSelected) {
+        visibleIdsArray.forEach((id) => next.delete(id));
+      } else {
+        visibleIdsArray.forEach((id) => next.add(id));
+      }
+      return next;
+    });
+  };
+
+  const confirmBulkDelete = () => {
+    if (selectedIdsArray.length === 0) return;
+    deleteLancamentosProducao(selectedIdsArray, true);
+    setSelectedIds(new Set());
+    setShowBulkDeleteConfirm(false);
+  };
+
   // CÁLCULOS CONSOLIDADOS CORRETOS (Requisito 7: NUNCA média simples de percentuais!)
   const consolidados = useMemo(() => {
     const totalBruto = lancamentosFiltrados.reduce((acc, l) => acc + (l.quantidadeBrutaKg || 0), 0);
@@ -792,6 +836,159 @@ export function LancamentosView() {
         </div>
       )}
 
+      {/* MODAL DE IMPORTAÇÃO DE PLANILHA */}
+      {showImportModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white rounded-3xl p-6 max-w-2xl w-full shadow-2xl border border-slate-200 space-y-5 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <FileSpreadsheet className="w-5 h-5 text-emerald-600" />
+                <h3 className="font-bold text-slate-900 text-lg">Importar Lançamentos (Planilha)</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowImportModal(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg"
+                disabled={importing}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-sm text-slate-600 leading-relaxed">
+              Selecione um arquivo <strong>Excel (.xlsx/.xls)</strong> ou <strong>CSV</strong> com os lançamentos.
+              Colunas simples (podem ter outro nome — o sistema identifica por equivalência):
+              <code className="text-[11px] bg-slate-100 px-1.5 py-0.5 rounded">Data, Máquina, Operador, Produto,
+              Perda (kg), Refugo (kg), Produção Boa (kg), Caixas Fechadas, Hora Início, Hora Fim,
+              Tempo Parado (min), Motivo da Parada</code>.
+            </p>
+            <p className="text-xs text-indigo-700 bg-indigo-50 border border-indigo-100 rounded-xl px-3 py-2 font-medium">
+              Dica: na coluna <strong>Máquina</strong> você pode digitar só a palavra-chave do equipamento
+              — ex.: <strong>Impressora</strong>, <strong>Extrusora</strong>, <strong>Corte 2</strong> —
+              e o sistema identifica/reconhece automaticamente as máquinas por essas palavras.
+            </p>
+
+            {/* Baixar modelo */}
+            <button
+              type="button"
+              onClick={downloadImportTemplate}
+              className="flex items-center gap-2 px-4 py-2 text-xs font-bold text-indigo-700 hover:bg-indigo-50 rounded-xl border border-indigo-200 transition-colors"
+            >
+              <Download className="w-4 h-4" />
+              Baixar modelo em CSV (com 1 exemplo)
+            </button>
+
+            {/* Área de arquivo */}
+            <label className={`block rounded-2xl border-2 border-dashed p-8 text-center cursor-pointer transition-colors ${importing ? 'opacity-60 pointer-events-none' : 'border-emerald-300 hover:border-emerald-500 bg-emerald-50/40'}`}>
+              <input
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                className="hidden"
+                disabled={importing}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleImportFile(file);
+                  e.target.value = '';
+                }}
+              />
+              <Upload className="w-8 h-8 mx-auto text-emerald-500 mb-2" />
+              <p className="text-sm font-bold text-slate-700">
+                {importing ? 'Processando importação...' : 'Clique para selecionar o arquivo'}
+              </p>
+              <p className="text-xs text-slate-500 mt-1">
+                Suporta .xlsx, .xls e .csv (vírgula ou ponto-e-vírgula, ponto ou vírgula decimal)
+              </p>
+            </label>
+
+            {/* Estado de processamento */}
+            {importing && (
+              <div className="flex items-center gap-3 text-sm font-bold text-emerald-700">
+                <Loader2 className="w-5 h-5 animate-spin" />
+                Lendo a planilha e gravando lançamentos...
+              </div>
+            )}
+
+            {/* Resultado da importação */}
+            {!importing && importResult && (
+              <div className="space-y-3">
+                <div
+                  className={`rounded-2xl p-4 border ${
+                    importResult.imported > 0
+                      ? 'bg-emerald-50 border-emerald-200'
+                      : 'bg-amber-50 border-amber-200'
+                  }`}
+                >
+                  <h4 className={`text-sm font-bold ${importResult.imported > 0 ? 'text-emerald-950' : 'text-amber-950'}`}>
+                    {importResult.imported > 0
+                      ? `${importResult.imported} de ${importResult.total} lançamentos importados!`
+                      : 'Nenhum lançamento importado'}
+                  </h4>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-3 text-xs text-slate-700">
+                    <div className="bg-white/70 rounded-lg px-3 py-2">
+                      <span className="block font-bold text-slate-900">Setores criados</span>
+                      {importResult.created.setores}
+                    </div>
+                    <div className="bg-white/70 rounded-lg px-3 py-2">
+                      <span className="block font-bold text-slate-900">Máquinas criadas</span>
+                      {importResult.created.maquinas}
+                    </div>
+                    <div className="bg-white/70 rounded-lg px-3 py-2">
+                      <span className="block font-bold text-slate-900">Operadores criados</span>
+                      {importResult.created.operadores}
+                    </div>
+                    <div className="bg-white/70 rounded-lg px-3 py-2">
+                      <span className="block font-bold text-slate-900">Produtos criados</span>
+                      {importResult.created.produtos}
+                    </div>
+                    <div className="bg-white/70 rounded-lg px-3 py-2">
+                      <span className="block font-bold text-slate-900">Turnos criados</span>
+                      {importResult.created.turnos}
+                    </div>
+                    <div className="bg-white/70 rounded-lg px-3 py-2">
+                      <span className="block font-bold text-slate-900">Motivos de parada criados</span>
+                      {importResult.created.motivos}
+                    </div>
+                  </div>
+                  {importResult.skipped > 0 && (
+                    <p className="text-xs font-semibold text-amber-700 mt-3">
+                      {importResult.skipped} linha(s) ignorada(s) por erros.
+                    </p>
+                  )}
+                </div>
+
+                {importResult.errors.length > 0 && (
+                  <div className="bg-red-50 border border-red-200 rounded-2xl p-4">
+                    <h4 className="text-xs font-bold text-red-900 mb-2">Problemas encontrados:</h4>
+                    <ul className="text-xs text-red-700 space-y-1 max-h-40 overflow-y-auto font-medium">
+                      {importResult.errors.slice(0, 50).map((err, i) => (
+                        <li key={i}>• {err}</li>
+                      ))}
+                      {importResult.errors.length > 50 && (
+                        <li>... e mais {importResult.errors.length - 50} erro(s).</li>
+                      )}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowImportModal(false);
+                  setImportResult(null);
+                }}
+                disabled={importing}
+                className="px-4 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-xs disabled:opacity-50"
+              >
+                Concluir
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* CABEÇALHO DO MÓDULO DE PRODUÇÃO */}
       <div className="flex items-center justify-between border-b border-slate-200 pb-3">
         <div className="flex items-center gap-2.5 text-slate-900">
@@ -801,14 +998,28 @@ export function LancamentosView() {
 
         {/* BOTÃO DESTACADO: NOVO LANÇAMENTO (Requisito 1) */}
         {viewMode === 'list' && (
-          <button
-            type="button"
-            onClick={handleStartNovoLancamento}
-            className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm rounded-xl shadow-sm transition-all hover:scale-[1.01] active:scale-[0.99]"
-          >
-            <Plus className="w-5 h-5" />
-            <span>NOVO LANÇAMENTO</span>
-          </button>
+          <div className="flex items-center gap-2.5">
+            <button
+              type="button"
+              onClick={() => {
+                setShowImportModal(true);
+                setImportResult(null);
+              }}
+              className="flex items-center gap-2 px-4 py-2.5 bg-white hover:bg-slate-50 text-slate-700 font-bold text-sm rounded-xl border border-slate-300 shadow-xs transition-all hover:scale-[1.01] active:scale-[0.99]"
+              title="Importar vários lançamentos de uma planilha Excel (.xlsx/.xls) ou CSV"
+            >
+              <FileSpreadsheet className="w-5 h-5 text-emerald-600" />
+              <span>IMPORTAR PLANILHA</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleStartNovoLancamento}
+              className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm rounded-xl shadow-sm transition-all hover:scale-[1.01] active:scale-[0.99]"
+            >
+              <Plus className="w-5 h-5" />
+              <span>NOVO LANÇAMENTO</span>
+            </button>
+          </div>
         )}
       </div>
 
@@ -1106,38 +1317,6 @@ export function LancamentosView() {
                           ))}
                         </select>
                       </div>
-
-                      {/* ESPECÍFICO DE IMPRESSÃO: Cliente & Metragem (Requisito 4) */}
-                      {selectedSetorId === 'set-imp' && (
-                        <>
-                          <div className="lg:col-span-7">
-                            <label className="block text-xs font-semibold text-slate-700 mb-1">
-                              Cliente / Trabalho Especial
-                            </label>
-                            <input
-                              type="text"
-                              value={formData.cliente}
-                              onChange={(e) => setFormData({ ...formData, cliente: e.target.value })}
-                              placeholder="Ex: Distribuidora Hortifruti Brasil S/A"
-                              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white font-medium focus:ring-2 focus:ring-indigo-500"
-                            />
-                          </div>
-
-                          <div className="lg:col-span-5">
-                            <label className="block text-xs font-semibold text-slate-700 mb-1">
-                              Metragem Linear (metros)
-                            </label>
-                            <input
-                              type="number"
-                              min="0"
-                              value={formData.metragemLinearMetros || ''}
-                              onChange={(e) => setFormData({ ...formData, metragemLinearMetros: Number(e.target.value) || 0 })}
-                              placeholder="Ex: 4500 m"
-                              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white font-mono font-medium focus:ring-2 focus:ring-indigo-500"
-                            />
-                          </div>
-                        </>
-                      )}
                     </div>
                   </div>
 
@@ -1151,29 +1330,15 @@ export function LancamentosView() {
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                      {/* Corte e Solda: 1º card - Perda */}
-                      {selectedSetorId === 'set-cs' && (
-                        <div className="bg-white p-3.5 rounded-xl border border-amber-200 shadow-2xs">
-                          <label className="block text-xs font-bold text-amber-800 whitespace-nowrap mb-1">Perda (kg)</label>
-                          <RtlDecimalInput
-                            value={formData.perdaKg}
-                            onChange={handlePerdaChange}
-                            className="w-full text-lg font-mono font-bold text-amber-700 border-amber-300"
-                          />
-                        </div>
-                      )}
-
-                      {/* Outros setores: Matéria-Prima Alimentada */}
-                      {selectedSetorId !== 'set-cs' && (
-                        <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
-                          <label className="block text-xs font-bold text-slate-800 whitespace-nowrap mb-1">Matéria-Prima (kg) *</label>
-                          <RtlDecimalInput
-                            value={formData.quantidadeBrutaKg}
-                            onChange={handleBrutoChange}
-                            className="w-full text-lg font-mono font-bold text-slate-900 border-slate-300"
-                          />
-                        </div>
-                      )}
+                      {/* 1º card - Perda (padrão Corte e Solda) */}
+                      <div className="bg-white p-3.5 rounded-xl border border-amber-200 shadow-2xs">
+                        <label className="block text-xs font-bold text-amber-800 whitespace-nowrap mb-1">Perda (kg)</label>
+                        <RtlDecimalInput
+                          value={formData.perdaKg}
+                          onChange={handlePerdaChange}
+                          className="w-full text-lg font-mono font-bold text-amber-700 border-amber-300"
+                        />
+                      </div>
 
                       {/* Refugo Independente */}
                       <div className="bg-white p-3.5 rounded-xl border border-rose-200 shadow-2xs">
@@ -1185,18 +1350,6 @@ export function LancamentosView() {
                         />
                       </div>
 
-                      {/* Perdas (apenas outros setores - Corte e Solda exibe na 1ª posição) */}
-                      {selectedSetorId !== 'set-cs' && (
-                        <div className="bg-white p-3.5 rounded-xl border border-amber-200 shadow-2xs">
-                          <label className="block text-xs font-bold text-amber-800 whitespace-nowrap mb-1">Perda (kg)</label>
-                          <RtlDecimalInput
-                            value={formData.perdaKg}
-                            onChange={handlePerdaChange}
-                            className="w-full text-lg font-mono font-bold text-amber-700 border-amber-300"
-                          />
-                        </div>
-                      )}
-
                       {/* Produção Líquida Boa */}
                       <div className="bg-white p-3.5 rounded-xl border border-emerald-300 shadow-2xs">
                         <label className="block text-xs font-bold text-emerald-800 whitespace-nowrap mb-1">Produção Boa (kg)</label>
@@ -1207,29 +1360,27 @@ export function LancamentosView() {
                         />
                       </div>
 
-                      {/* Corte e Solda: Quantidade de Caixas (Regra 3.500 un/cx) */}
-                      {selectedSetorId === 'set-cs' && (
-                        <div className="bg-white p-3.5 rounded-xl border-2 border-emerald-300 shadow-2xs">
-                          <label className="block text-xs font-bold text-emerald-800 whitespace-nowrap mb-1">Caixas Fechadas</label>
-                          <input
-                            type="number"
-                            min="0"
-                            step="1"
-                            value={formData.quantidadeCaixas || ''}
-                            onChange={(e) => {
-                              const caixas = Number(e.target.value) || 0;
-                              const padrao = Number(formData.unidadesPorCaixa) || 3500;
-                              setFormData({
-                                ...formData,
-                                quantidadeCaixas: caixas,
-                                quantidadeUnidades: Math.round(caixas * padrao),
-                              });
-                            }}
-                            placeholder="Ex: 10"
-                            className="w-full px-3 py-2 text-lg border border-slate-300 rounded-lg bg-white font-mono font-bold text-slate-900 focus:ring-2 focus:ring-emerald-500"
-                          />
-                        </div>
-                      )}
+                      {/* Quantidade de Caixas (Regra 3.500 un/cx) - todos os setores */}
+                      <div className="bg-white p-3.5 rounded-xl border-2 border-emerald-300 shadow-2xs">
+                        <label className="block text-xs font-bold text-emerald-800 whitespace-nowrap mb-1">Caixas Fechadas</label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="1"
+                          value={formData.quantidadeCaixas || ''}
+                          onChange={(e) => {
+                            const caixas = Number(e.target.value) || 0;
+                            const padrao = Number(formData.unidadesPorCaixa) || 3500;
+                            setFormData({
+                              ...formData,
+                              quantidadeCaixas: caixas,
+                              quantidadeUnidades: Math.round(caixas * padrao),
+                            });
+                          }}
+                          placeholder="Ex: 10"
+                          className="w-full px-3 py-2 text-lg border border-slate-300 rounded-lg bg-white font-mono font-bold text-slate-900 focus:ring-2 focus:ring-emerald-500"
+                        />
+                      </div>
                     </div>
                   </div>
 
@@ -1401,12 +1552,10 @@ export function LancamentosView() {
                   </div>
 
                   <div className="space-y-3 font-mono">
-                    {selectedSetorId === 'set-cs' && (
-                      <div className="flex items-center justify-between text-xs p-2.5 rounded-xl bg-slate-50 border border-slate-100">
-                        <span className="text-slate-600 font-sans">Matéria-Prima Alimentada (calc):</span>
-                        <strong className="text-slate-900 text-sm">{calcBruto.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} kg</strong>
-                      </div>
-                    )}
+                    <div className="flex items-center justify-between text-xs p-2.5 rounded-xl bg-slate-50 border border-slate-100">
+                      <span className="text-slate-600 font-sans">Matéria-Prima Alimentada (calc):</span>
+                      <strong className="text-slate-900 text-sm">{calcBruto.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} kg</strong>
+                    </div>
 
                     <div className="flex items-center justify-between text-xs p-2.5 rounded-xl bg-slate-50 border border-slate-100">
                       <span className="text-slate-600 font-sans">Produção Boa:</span>
@@ -1441,24 +1590,15 @@ export function LancamentosView() {
                       </div>
                     </div>
 
-                    {selectedSetorId === 'set-cs' && (
-                      <div className="flex items-center justify-between text-xs p-2.5 rounded-xl bg-emerald-50/50 border border-emerald-100">
-                        <span className="text-emerald-900 font-sans">Caixas & Unidades:</span>
-                        <div className="text-right">
-                          <strong className="text-emerald-800 text-sm">{(formData.quantidadeUnidades || 0).toLocaleString('pt-BR')} un</strong>
-                          <span className="text-[10px] text-emerald-700 block font-sans font-semibold">
-                            {calcCaixasCorteSolda > 0 ? `${calcCaixasCorteSolda} cx × ` : ''}{formData.unidadesPorCaixa || 3500} un/cx
-                          </span>
-                        </div>
+                    <div className="flex items-center justify-between text-xs p-2.5 rounded-xl bg-emerald-50/50 border border-emerald-100">
+                      <span className="text-emerald-900 font-sans">Caixas & Unidades:</span>
+                      <div className="text-right">
+                        <strong className="text-emerald-800 text-sm">{(formData.quantidadeUnidades || 0).toLocaleString('pt-BR')} un</strong>
+                        <span className="text-[10px] text-emerald-700 block font-sans font-semibold">
+                          {calcCaixasCorteSolda > 0 ? `${calcCaixasCorteSolda} cx × ` : ''}{formData.unidadesPorCaixa || 3500} un/cx
+                        </span>
                       </div>
-                    )}
-
-                    {selectedSetorId === 'set-imp' && formData.metragemLinearMetros > 0 && (
-                      <div className="flex items-center justify-between text-xs p-2.5 rounded-xl bg-violet-50/50 border border-violet-100">
-                        <span className="text-violet-900 font-sans">Metragem Linear:</span>
-                        <strong className="text-violet-800 text-sm">{formData.metragemLinearMetros.toLocaleString('pt-BR')} m</strong>
-                      </div>
-                    )}
+                    </div>
                   </div>
 
                   {/* Status contra a meta do setor */}
@@ -1659,6 +1799,33 @@ export function LancamentosView() {
                 </div>
               </div>
 
+              {/* Barra de Ações em Lote */}
+              {selectedIdsArray.length > 0 && (
+                <div className="flex flex-wrap items-center justify-between gap-3 bg-emerald-900 text-white p-3 rounded-2xl border border-emerald-700">
+                  <div className="flex items-center gap-2 text-xs font-bold">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    <span>{selectedIdsArray.length} lançamento{selectedIdsArray.length > 1 ? 's' : ''} selecionado{selectedIdsArray.length > 1 ? 's' : ''}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedIds(new Set())}
+                      className="px-3 py-1.5 text-xs font-semibold text-emerald-200 hover:text-white hover:bg-emerald-800 rounded-lg transition-colors"
+                    >
+                      Limpar seleção
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowBulkDeleteConfirm(true)}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold text-white bg-rose-600 hover:bg-rose-500 rounded-lg shadow-xs transition-colors"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      Excluir selecionados
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* Tabela de Lançamentos */}
               <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
                 {lancamentosFiltrados.length === 0 ? (
@@ -1686,6 +1853,15 @@ export function LancamentosView() {
                     <table className="w-full text-left text-xs border-collapse">
                       <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase text-[10px]">
                         <tr>
+                          <th className="py-3 px-3 w-8">
+                            <input
+                              type="checkbox"
+                              checked={allVisibleSelected}
+                              onChange={toggleSelectAllVisible}
+                              title={allVisibleSelected ? 'Desmarcar todos' : 'Selecionar todos os visíveis'}
+                              className="w-3.5 h-3.5 accent-emerald-600 cursor-pointer"
+                            />
+                          </th>
                           <th className="py-3 px-3">Data / OP</th>
                           <th className="py-3 px-3">Setor & Máquina</th>
                           <th className="py-3 px-3">Operador / Horário</th>
@@ -1707,7 +1883,17 @@ export function LancamentosView() {
                             : '0.00';
 
                           return (
-                            <tr key={l.id} className="hover:bg-slate-50/80 transition-colors">
+                            <tr key={l.id} className={`transition-colors ${selectedIds.has(l.id) ? 'bg-emerald-50/70 hover:bg-emerald-50' : 'hover:bg-slate-50/80'}`}>
+                              {/* Seleção */}
+                              <td className="py-3 px-3">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedIds.has(l.id)}
+                                  onChange={() => toggleSelectItem(l.id)}
+                                  className="w-3.5 h-3.5 accent-emerald-600 cursor-pointer"
+                                />
+                              </td>
+
                               {/* Data e OP */}
                               <td className="py-3 px-3 whitespace-nowrap">
                                 <div className="font-bold text-slate-900">{l.data}</div>
@@ -2058,6 +2244,65 @@ export function LancamentosView() {
                 className="px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-xs transition-colors"
               >
                 Sim, Excluir Lançamento
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* MODAL: CONFIRMAÇÃO DE EXCLUSÃO EM LOTE */}
+      {/* ======================================================== */}
+      {showBulkDeleteConfirm && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xl max-w-lg w-full p-6 space-y-4">
+            <div className="w-12 h-12 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center mb-1">
+              <AlertTriangle className="w-6 h-6" />
+            </div>
+
+            <h3 className="text-base font-bold text-slate-900">Excluir Lançamentos em Lote</h3>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Tem certeza de que deseja excluir <strong>{selectedIdsArray.length}</strong> lançamento{selectedIdsArray.length > 1 ? 's' : ''} de produção?
+            </p>
+
+            <div className="p-3 max-h-40 overflow-y-auto bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-1.5 font-mono">
+              {selectedBulkItems.length === 0 && (
+                <div className="text-slate-500">Nenhum lançamento (já foram removidos da listagem).</div>
+              )}
+              {selectedBulkItems.map((l) => (
+                <div key={l.id} className="flex items-center justify-between gap-2">
+                  <span>
+                    {l.data} · {getMaquinaName(l.maquinaId)}
+                  </span>
+                  <span className="text-slate-400">{getOperadorName(l.operadorId)} · {l.quantidadeBrutaKg.toFixed(2)} kg</span>
+                </div>
+              ))}
+              {selectedIdsArray.length > selectedBulkItems.length && (
+                <div className="text-slate-500">
+                  {selectedIdsArray.length - selectedBulkItems.length} selecionado(s) oculto(s) pelos filtros.
+                </div>
+              )}
+            </div>
+
+            <p className="text-[11px] text-slate-400">
+              Os registros serão desativados com preservação do histórico lógico da fábrica.
+            </p>
+
+            <div className="pt-2 flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setShowBulkDeleteConfirm(false)}
+                className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl border border-slate-200 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={confirmBulkDelete}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-xs transition-colors"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                Excluir {selectedIdsArray.length}
               </button>
             </div>
           </div>

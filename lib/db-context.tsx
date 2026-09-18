@@ -16,6 +16,7 @@ import {
 import { INITIAL_DATABASE_DATA } from './default-data';
 import { getDemoLancamentos } from './demo-data';
 import { getSupabaseBrowserClient, SUPABASE_CONFIG, SUPABASE_SQL_SETUP } from './supabase';
+import { LancamentoImportRow, ImportLancamentosResult, matchSetorByKeyword } from './import-lancamentos';
 
 const STORAGE_KEY = 'gestao_producao_db_v2';
 const STORAGE_KEY_BACKUP = 'gestao_producao_backup_v2';
@@ -205,6 +206,7 @@ interface ProductionContextType {
   addLancamentoProducao: (item: Omit<LancamentoProducao, 'id' | 'createdAt' | 'updatedAt' | 'percentualPerda' | 'produtividadeKgHora'>) => LancamentoProducao;
   updateLancamentoProducao: (id: string, item: Partial<LancamentoProducao>) => void;
   deleteLancamentoProducao: (id: string, softDelete?: boolean) => void;
+  deleteLancamentosProducao: (ids: string[], softDelete?: boolean) => void;
 
   // Lançamentos Atômicos de Produção com Parada Integrada (Previne sobrescrita e race conditions)
   addLancamentoProducaoComParada: (
@@ -220,6 +222,9 @@ interface ProductionContextType {
   // Lançamentos de Parada
   addLancamentoParada: (item: Omit<LancamentoParada, 'id' | 'createdAt'>) => void;
   deleteLancamentoParada: (id: string) => void;
+
+  // Importação em lote de lançamentos (planilha Excel/CSV)
+  importLancamentos: (rows: LancamentoImportRow[]) => ImportLancamentosResult;
 
   // Premiação
   updateRegraPremiacao: (setorId: string, rule: Partial<RegraPremiacao>) => void;
@@ -1034,6 +1039,18 @@ export function ProductionProvider({ children }: { children: React.ReactNode }) 
     });
   };
 
+  const deleteLancamentosProducao = (ids: string[], softDelete = true) => {
+    const current = dataRef.current;
+    const idSet = new Set(ids);
+    const now = new Date().toISOString();
+    persistState({
+      ...current,
+      lancamentosProducao: softDelete
+        ? current.lancamentosProducao.map((l) => (idSet.has(l.id) ? { ...l, isDeleted: true, updatedAt: now } : l))
+        : current.lancamentosProducao.filter((l) => !idSet.has(l.id)),
+    });
+  };
+
   // LANÇAMENTOS DE PARADA
   const addLancamentoParada = (item: Omit<LancamentoParada, 'id' | 'createdAt'>) => {
     const now = new Date().toISOString();
@@ -1055,6 +1072,374 @@ export function ProductionProvider({ children }: { children: React.ReactNode }) 
       ...current,
       lancamentosParada: current.lancamentosParada.filter((p) => p.id !== id),
     });
+  };
+
+  // IMPORTAÇÃO EM LOTE DE LANÇAMENTOS (planilha Excel/CSV)
+  const importLancamentos = (rows: LancamentoImportRow[]): ImportLancamentosResult => {
+    const current = dataRef.current;
+    const now = new Date().toISOString();
+
+    const norm = (value?: string) =>
+      String(value ?? '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, '');
+
+    let seq = 0;
+    const uid = (prefix: string) => `${prefix}-${Date.now()}-${++seq}`;
+
+    const setores = [...current.setores];
+    const maquinas = [...current.maquinas];
+    const operadores = [...current.operadores];
+    const produtos = [...current.produtos];
+    const turnos = [...current.turnos];
+    const motivos = [...current.motivosParada];
+    const lancamentos = [...current.lancamentosProducao];
+    const paradas = [...current.lancamentosParada];
+
+    const created = { setores: 0, maquinas: 0, operadores: 0, produtos: 0, turnos: 0, motivos: 0 };
+    const errors: string[] = [];
+    let imported = 0;
+
+    const findOrCreateSetor = (nome: string): Setor => {
+      const n = norm(nome);
+      const found = setores.find((s) => norm(s.nome) === n || norm(s.codigo) === n);
+      if (found) return found;
+      const novo: Setor = {
+        id: uid('set'),
+        codigo: nome.trim().slice(0, 12).toUpperCase(),
+        nome: nome.trim(),
+        descricao: 'Criado via importação de planilha',
+        unidadePadrao: 'kg',
+        ativo: true,
+        ordem: setores.length + 1,
+        createdAt: now,
+        updatedAt: now,
+      };
+      setores.push(novo);
+      created.setores++;
+      return novo;
+    };
+
+    const findOrCreateMaquina = (nome: string, setorId: string): Maquina => {
+      const n = norm(nome);
+      const found = maquinas.find((m) => m.setorId === setorId && (norm(m.nome) === n || norm(m.codigo) === n));
+      if (found) return found;
+      const nova: Maquina = {
+        id: uid('maq'),
+        codigo: nome.trim().slice(0, 12).toUpperCase(),
+        nome: nome.trim(),
+        setorId,
+        capacidadeNominalHora: 0,
+        status: 'operando',
+        ativo: true,
+        observacoes: 'Criada via importação de planilha',
+        createdAt: now,
+        updatedAt: now,
+      };
+      maquinas.push(nova);
+      created.maquinas++;
+      return nova;
+    };
+
+    const findOrCreateOperador = (nome: string, setorId: string): Operador => {
+      const n = norm(nome);
+      const found = operadores.find((op) => norm(op.nome) === n || norm(op.matricula) === n);
+      if (found) return found;
+      const novo: Operador = {
+        id: uid('op'),
+        matricula: nome.trim().slice(0, 12).toUpperCase(),
+        nome: nome.trim(),
+        setorId,
+        metaPerdaMaximaPercent: 2.5,
+        ativo: true,
+        observacoes: 'Criado via importação de planilha',
+        createdAt: now,
+        updatedAt: now,
+      };
+      operadores.push(novo);
+      created.operadores++;
+      return novo;
+    };
+
+    const findOrCreateProduto = (nome: string, setorId: string): Produto => {
+      const n = norm(nome);
+      const found = produtos.find((p) => norm(p.descricao) === n || norm(p.codigo) === n);
+      if (found) return found;
+      const novo: Produto = {
+        id: uid('prod'),
+        codigo: nome.trim().slice(0, 12).toUpperCase(),
+        descricao: nome.trim(),
+        setorOrigemId: setorId,
+        tipoMaterial: 'Outro',
+        ativo: true,
+        observacoes: 'Criado via importação de planilha',
+        createdAt: now,
+        updatedAt: now,
+      };
+      produtos.push(novo);
+      created.produtos++;
+      return novo;
+    };
+
+    const findOrCreateTurno = (nome?: string): Turno => {
+      if (nome && nome.trim()) {
+        const n = norm(nome);
+        const found = turnos.find((t) => norm(t.nome) === n || norm(t.codigo) === n);
+        if (found) return found;
+        const novo: Turno = {
+          id: uid('tur'),
+          codigo: nome.trim().slice(0, 12).toUpperCase(),
+          nome: nome.trim(),
+          horaInicio: '06:00',
+          horaFim: '14:20',
+          cargaHorariaMinutos: 500,
+          ativo: true,
+          createdAt: now,
+          updatedAt: now,
+        };
+        turnos.push(novo);
+        created.turnos++;
+        return novo;
+      }
+      if (turnos.length > 0) return turnos[0];
+      const padrao: Turno = {
+        id: uid('tur'),
+        codigo: '1T',
+        nome: '1º Turno',
+        horaInicio: '06:00',
+        horaFim: '14:20',
+        cargaHorariaMinutos: 500,
+        ativo: true,
+        createdAt: now,
+        updatedAt: now,
+      };
+      turnos.push(padrao);
+      created.turnos++;
+      return padrao;
+    };
+
+    const findOrCreateMotivo = (descricao: string): MotivoParada => {
+      const n = norm(descricao);
+      const found = motivos.find((m) => norm(m.descricao) === n || norm(m.codigo) === n);
+      if (found) return found;
+      const novo: MotivoParada = {
+        id: uid('mot'),
+        codigo: descricao.trim().slice(0, 12).toUpperCase(),
+        descricao: descricao.trim(),
+        tipo: 'nao_programada',
+        ativo: true,
+        createdAt: now,
+        updatedAt: now,
+      };
+      motivos.push(novo);
+      created.motivos++;
+      return novo;
+    };
+
+    // Reconhece o setor pela coluna "Setor" OU pela palavra-chave da máquina
+    // (ex.: "Impressora", "Extrusora", "Corte") OU pelo setor da máquina já cadastrada.
+    const resolveSetor = (row: LancamentoImportRow): Setor => {
+      if (row.setor && row.setor.trim()) return findOrCreateSetor(row.setor);
+
+      const inferred = matchSetorByKeyword(row.maquina);
+      if (inferred) {
+        const existing = setores.find(
+          (s) =>
+            norm(s.nome) === norm(inferred.nome) ||
+            norm(s.codigo) === norm(inferred.nome) ||
+            norm(s.id) === norm(inferred.id)
+        );
+        if (existing) return existing;
+        const novo: Setor = {
+          id: inferred.id,
+          codigo: inferred.id.toUpperCase(),
+          nome: inferred.nome,
+          descricao: 'Criado via importação de planilha',
+          unidadePadrao: 'kg',
+          ativo: true,
+          ordem: setores.length + 1,
+          createdAt: now,
+          updatedAt: now,
+        };
+        setores.push(novo);
+        created.setores++;
+        return novo;
+      }
+
+      if (setores.length > 0) return setores[0];
+      const padrao: Setor = {
+        id: uid('set'),
+        codigo: 'GERAL',
+        nome: 'Geral',
+        descricao: 'Criado via importação de planilha',
+        unidadePadrao: 'kg',
+        ativo: true,
+        ordem: 1,
+        createdAt: now,
+        updatedAt: now,
+      };
+      setores.push(padrao);
+      created.setores++;
+      return padrao;
+    };
+
+    // Pontua o quanto uma máquina corresponde ao texto digitado (ex.: "Impressora 02")
+    const scoreMachineMatch = (candidate: Maquina, cell: string): number => {
+      const hay = norm(`${candidate.nome} ${candidate.codigo}`);
+      const tokens = cell.split(/[^a-z0-9]+/).filter((t) => t.length > 1);
+      let score = 0;
+      for (const token of tokens) {
+        if (token && hay.includes(token)) score++;
+      }
+      return score;
+    };
+
+    // Resolve a máquina por código/nome exato, depois por palavra-chave e número
+    // (ex.: "Impressora 02" encontra "IMP-02 Impressora Flexo"); senão cria.
+    const resolveMaquina = (nome: string, setorId: string): Maquina => {
+      const cellNome = String(nome || '').trim();
+      const n = norm(cellNome);
+
+      const exata = maquinas.find((m) => norm(m.nome) === n || norm(m.codigo) === n);
+      if (exata) return exata;
+
+      let melhor: Maquina | undefined;
+      let melhorScore = 0;
+      for (const m of maquinas.filter((maq) => maq.setorId === setorId)) {
+        const score = scoreMachineMatch(m, n);
+        if (score > melhorScore) {
+          melhorScore = score;
+          melhor = m;
+        }
+      }
+      if (melhor) return melhor;
+
+      return findOrCreateMaquina(cellNome, setorId);
+    };
+
+    const calcularMinutos = (horaInicio?: string, horaFim?: string): number => {
+      if (!horaInicio || !horaFim) return 0;
+      const [h1, m1] = horaInicio.split(':').map(Number);
+      const [h2, m2] = horaFim.split(':').map(Number);
+      if ([h1, m1, h2, m2].some((v) => isNaN(v))) return 0;
+      const ini = h1 * 60 + m1;
+      let fim = h2 * 60 + m2;
+      if (fim < ini) fim += 24 * 60;
+      return Math.max(0, fim - ini);
+    };
+
+    rows.forEach((row, index) => {
+      const rowNumber = index + 2;
+      try {
+        const setorInferido = resolveSetor(row);
+        const maquina = resolveMaquina(row.maquina, setorInferido.id);
+        const setor = setores.find((s) => s.id === maquina.setorId) || setorInferido;
+        const operador = findOrCreateOperador(row.operador, setor.id);
+        const produto = findOrCreateProduto(row.produto, setor.id);
+        const turno = findOrCreateTurno(row.turno);
+
+        const horaInicio = row.horaInicio || turno.horaInicio;
+        const horaFim = row.horaFim || turno.horaFim;
+
+        const refugo = Number(row.refugoKg) || 0;
+        const perda = Number(row.perdaKg) || 0;
+        const liquido = Number(row.quantidadeLiquidaKg) || 0;
+
+        let bruto = Number(row.quantidadeBrutaKg) || 0;
+        if (bruto <= 0 && (liquido > 0 || refugo > 0 || perda > 0)) {
+          bruto = Number((liquido + refugo + perda).toFixed(2));
+        }
+
+        let tempoTrabalhado = Number(row.tempoTrabalhadoMinutos) || 0;
+        if (tempoTrabalhado <= 0) tempoTrabalhado = calcularMinutos(horaInicio, horaFim);
+
+        const tempoParado = Number(row.tempoParadoMinutos) || 0;
+
+        const totalDescarte = refugo + perda;
+        const percentualPerda = bruto > 0 ? Number(((totalDescarte / bruto) * 100).toFixed(2)) : 0;
+        const horasTrabalhadas = tempoTrabalhado / 60;
+        const produtividadeKgHora = horasTrabalhadas > 0 ? Number((liquido / horasTrabalhadas).toFixed(2)) : 0;
+
+        const novoLancamento: LancamentoProducao = {
+          id: uid('lanc'),
+          data: row.data,
+          turnoId: turno.id,
+          setorId: setor.id,
+          maquinaId: maquina.id,
+          operadorId: operador.id,
+          produtoId: produto.id,
+          ordemProducao: row.ordemProducao?.trim() || `IMP-${Date.now()}-${index + 1}`,
+          cliente: row.cliente,
+          metragemLinearMetros: row.metragemLinearMetros,
+          quantidadeCaixas: row.quantidadeCaixas,
+          unidadesPorCaixa: row.unidadesPorCaixa,
+          quantidadeUnidades: row.quantidadeUnidades,
+          quantidadeBrutaKg: bruto,
+          quantidadeLiquidaKg: liquido,
+          refugoKg: refugo,
+          perdaKg: perda,
+          percentualPerda,
+          horaInicio,
+          horaFim,
+          tempoTrabalhadoMinutos: tempoTrabalhado,
+          tempoParadoMinutos: tempoParado,
+          produtividadeKgHora,
+          status: 'concluido',
+          observacoes: row.observacoes,
+          isDeleted: false,
+          createdAt: now,
+          updatedAt: now,
+        };
+
+        lancamentos.push(novoLancamento);
+
+        if (tempoParado > 0) {
+          const motivo = findOrCreateMotivo(row.motivoParada?.trim() || 'Importação (motivo não informado)');
+          paradas.push({
+            id: uid('par'),
+            lancamentoProducaoId: novoLancamento.id,
+            data: row.data,
+            turnoId: turno.id,
+            maquinaId: maquina.id,
+            operadorId: operador.id,
+            motivoParadaId: motivo.id,
+            tempoMinutos: tempoParado,
+            horaInicio,
+            horaFim,
+            observacoes: row.observacoes,
+            createdAt: now,
+          });
+        }
+
+        imported++;
+      } catch (err) {
+        errors.push(`Linha ${rowNumber}: ${(err as Error).message}`);
+      }
+    });
+
+    const nextState: DatabaseSchema = {
+      ...current,
+      setores,
+      maquinas,
+      operadores,
+      produtos,
+      turnos,
+      motivosParada: motivos,
+      lancamentosProducao: lancamentos,
+      lancamentosParada: paradas,
+    };
+
+    persistState(nextState);
+
+    return {
+      total: rows.length,
+      imported,
+      skipped: rows.length - imported,
+      created,
+      errors,
+    };
   };
 
   // REGRAS DE PREMIAÇÃO
@@ -1199,10 +1584,12 @@ export function ProductionProvider({ children }: { children: React.ReactNode }) 
         addLancamentoProducao,
         updateLancamentoProducao,
         deleteLancamentoProducao,
+        deleteLancamentosProducao,
         addLancamentoProducaoComParada,
         updateLancamentoProducaoComParada,
         addLancamentoParada,
         deleteLancamentoParada,
+        importLancamentos,
         updateRegraPremiacao,
         resetToDefaults,
         exportBackupJSON,
