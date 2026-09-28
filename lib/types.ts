@@ -156,6 +156,13 @@ export interface LancamentoParada {
   createdAt: string;
 }
 
+// Registro de exclusão permanente (evita que cópias antigas ressuscitem cadastros deletados)
+export interface DeletedEntity {
+  id: string;
+  tipo: string;
+  deletedAt: string;
+}
+
 // Estrutura Geral do Banco de Dados
 export interface DatabaseSchema {
   setores: Setor[];
@@ -167,6 +174,7 @@ export interface DatabaseSchema {
   regrasPremiacao: RegraPremiacao[];
   lancamentosProducao: LancamentoProducao[];
   lancamentosParada: LancamentoParada[];
+  deletedEntities?: DeletedEntity[];
   configuracoes: {
     nomeEmpresa: string;
     cnpj?: string;

@@ -12,6 +12,7 @@ import {
   LancamentoProducao,
   LancamentoParada,
   RegraPremiacao,
+  DeletedEntity,
 } from './types';
 import { INITIAL_DATABASE_DATA } from './default-data';
 import { getDemoLancamentos } from './demo-data';
@@ -117,6 +118,36 @@ function mergeDatabases(local: DatabaseSchema | null, server: DatabaseSchema | n
     if (item && item.id) mergedParadasMap.set(item.id, item);
   }
 
+  // Mescla registros de exclusão (tombstones): exclusões são união e nunca voltam atrás
+  const tombstoneKey = (tipo: string, id: string) => `${tipo}:${id}`;
+  const mergedTombstones = (() => {
+    const map = new Map<string, DeletedEntity>();
+    for (const t of [...(local.deletedEntities || []), ...(server.deletedEntities || [])]) {
+      if (t && t.id && t.tipo) {
+        const key = tombstoneKey(t.tipo, t.id);
+        const existing = map.get(key);
+        if (!existing || new Date(t.deletedAt).getTime() >= new Date(existing.deletedAt).getTime()) {
+          map.set(key, t);
+        }
+      }
+    }
+    return Array.from(map.values());
+  })();
+  const tombstoneMap = new Map(mergedTombstones.map((t) => [tombstoneKey(t.tipo, t.id), t]));
+
+  // Remove cadastros que já foram excluídos de forma permanente (a menos que uma versão
+  // mais nova do item exista - ex.: recadastro com o mesmo ID em outro dispositivo)
+  const removeDeletedById = <T extends { id: string; updatedAt?: string }>(list: T[], tipo: string): T[] => {
+    return (list || []).filter((item) => {
+      if (!item || !item.id) return false;
+      const tomb = tombstoneMap.get(tombstoneKey(tipo, item.id));
+      if (!tomb) return true;
+      const itemTime = new Date(item.updatedAt || 0).getTime();
+      const tombTime = new Date(tomb.deletedAt).getTime();
+      return tombTime < itemTime;
+    });
+  };
+
   // Mescla por ID preservando cadastros novos do servidor (como máquinas de impressão) e cadastros locais
   const mergeById = <T extends { id: string }>(serverList: T[] = [], localList: T[] = []): T[] => {
     const map = new Map<string, T>();
@@ -135,15 +166,16 @@ function mergeDatabases(local: DatabaseSchema | null, server: DatabaseSchema | n
       ...server.configuracoes,
       ...local.configuracoes,
     },
-    setores: mergeById(server.setores, local.setores),
-    maquinas: mergeById(server.maquinas, local.maquinas),
-    operadores: mergeById(server.operadores, local.operadores),
-    produtos: mergeById(server.produtos, local.produtos),
-    turnos: mergeById(server.turnos, local.turnos),
-    motivosParada: mergeById(server.motivosParada, local.motivosParada),
+    setores: removeDeletedById(mergeById(server.setores, local.setores), 'setores'),
+    maquinas: removeDeletedById(mergeById(server.maquinas, local.maquinas), 'maquinas'),
+    operadores: removeDeletedById(mergeById(server.operadores, local.operadores), 'operadores'),
+    produtos: removeDeletedById(mergeById(server.produtos, local.produtos), 'produtos'),
+    turnos: removeDeletedById(mergeById(server.turnos, local.turnos), 'turnos'),
+    motivosParada: removeDeletedById(mergeById(server.motivosParada, local.motivosParada), 'motivosParada'),
     regrasPremiacao: mergeById(server.regrasPremiacao, local.regrasPremiacao),
     lancamentosProducao: Array.from(mergedLancamentosMap.values()),
     lancamentosParada: Array.from(mergedParadasMap.values()),
+    deletedEntities: mergedTombstones.slice(-500),
   };
 }
 
@@ -709,11 +741,26 @@ export function ProductionProvider({ children }: { children: React.ReactNode }) 
     }
   };
 
+  // Registra uma exclusão permanente para que nenhuma cópia antiga (Supabase,
+  // localStorage, abas antigas) ressuscite o cadastro no futuro.
+  const recordDeletion = (nextData: DatabaseSchema, tipo: string, id: string): DatabaseSchema => {
+    const tombstones = Array.isArray(nextData.deletedEntities)
+      ? nextData.deletedEntities.filter((t) => !(t.tipo === tipo && t.id === id))
+      : [];
+    tombstones.push({ id, tipo, deletedAt: new Date().toISOString() });
+    return { ...nextData, deletedEntities: tombstones.slice(-500) };
+  };
+
   const deleteSetor = (id: string) => {
-    persistState({
-      ...data,
-      setores: data.setores.filter((s) => s.id !== id),
-    });
+    const current = dataRef.current;
+    persistState(recordDeletion(
+      {
+        ...current,
+        setores: current.setores.filter((s) => s.id !== id),
+      },
+      'setores',
+      id
+    ));
   };
 
   // MÁQUINAS
@@ -747,10 +794,15 @@ export function ProductionProvider({ children }: { children: React.ReactNode }) 
   };
 
   const deleteMaquina = (id: string) => {
-    persistState({
-      ...data,
-      maquinas: data.maquinas.filter((m) => m.id !== id),
-    });
+    const current = dataRef.current;
+    persistState(recordDeletion(
+      {
+        ...current,
+        maquinas: current.maquinas.filter((m) => m.id !== id),
+      },
+      'maquinas',
+      id
+    ));
   };
 
   // OPERADORES
@@ -784,10 +836,15 @@ export function ProductionProvider({ children }: { children: React.ReactNode }) 
   };
 
   const deleteOperador = (id: string) => {
-    persistState({
-      ...data,
-      operadores: data.operadores.filter((op) => op.id !== id),
-    });
+    const current = dataRef.current;
+    persistState(recordDeletion(
+      {
+        ...current,
+        operadores: current.operadores.filter((op) => op.id !== id),
+      },
+      'operadores',
+      id
+    ));
   };
 
   // PRODUTOS
@@ -821,10 +878,15 @@ export function ProductionProvider({ children }: { children: React.ReactNode }) 
   };
 
   const deleteProduto = (id: string) => {
-    persistState({
-      ...data,
-      produtos: data.produtos.filter((p) => p.id !== id),
-    });
+    const current = dataRef.current;
+    persistState(recordDeletion(
+      {
+        ...current,
+        produtos: current.produtos.filter((p) => p.id !== id),
+      },
+      'produtos',
+      id
+    ));
   };
 
   // TURNOS
@@ -858,10 +920,15 @@ export function ProductionProvider({ children }: { children: React.ReactNode }) 
   };
 
   const deleteTurno = (id: string) => {
-    persistState({
-      ...data,
-      turnos: data.turnos.filter((t) => t.id !== id),
-    });
+    const current = dataRef.current;
+    persistState(recordDeletion(
+      {
+        ...current,
+        turnos: current.turnos.filter((t) => t.id !== id),
+      },
+      'turnos',
+      id
+    ));
   };
 
   // MOTIVOS DE PARADA
@@ -895,10 +962,15 @@ export function ProductionProvider({ children }: { children: React.ReactNode }) 
   };
 
   const deleteMotivoParada = (id: string) => {
-    persistState({
-      ...data,
-      motivosParada: data.motivosParada.filter((m) => m.id !== id),
-    });
+    const current = dataRef.current;
+    persistState(recordDeletion(
+      {
+        ...current,
+        motivosParada: current.motivosParada.filter((m) => m.id !== id),
+      },
+      'motivosParada',
+      id
+    ));
   };
 
   // LANÇAMENTOS DE PRODUÇÃO
@@ -1500,10 +1572,26 @@ export function ProductionProvider({ children }: { children: React.ReactNode }) 
   };
 
   const clearAllData = async () => {
+    const current = dataRef.current;
+    const now = new Date().toISOString();
+    const tombstones: DeletedEntity[] = [];
+    const tombstoneAll = (tipo: string, list: { id: string }[]) => {
+      for (const item of list || []) {
+        if (item && item.id) tombstones.push({ id: item.id, tipo, deletedAt: now });
+      }
+    };
+    tombstoneAll('setores', current.setores);
+    tombstoneAll('maquinas', current.maquinas);
+    tombstoneAll('operadores', current.operadores);
+    tombstoneAll('produtos', current.produtos);
+    tombstoneAll('turnos', current.turnos);
+    tombstoneAll('motivosParada', current.motivosParada);
+
     const emptyData: DatabaseSchema = {
+      ...current,
       configuracoes: {
-        ...data.configuracoes,
-        ultimaAtualizacao: new Date().toISOString(),
+        ...current.configuracoes,
+        ultimaAtualizacao: now,
       },
       setores: [],
       maquinas: [],
@@ -1514,6 +1602,7 @@ export function ProductionProvider({ children }: { children: React.ReactNode }) 
       regrasPremiacao: [],
       lancamentosProducao: [],
       lancamentosParada: [],
+      deletedEntities: tombstones.slice(-500),
     };
     await persistState(emptyData);
   };
